@@ -1,0 +1,108 @@
+name: 'Application: Sandbox Deploy'
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ 'sandbox/**' ]
+    paths:
+      - 'infra/**'
+      - '*.py'
+      - 'requirements.txt'
+      - '.github/workflows/sandbox-deploy.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  # ===============================================================
+  # 🧪 Sandbox 設定エリア
+  # Slack 通知からコピーした内容をここに貼り付けてください
+  # ===============================================================
+  APP_NAME:             "sample-app"
+  ADMIN_PROJECT_ID:     "YOUR_ADMIN_PROJECT_ID"
+  ADMIN_PROJECT_NUMBER: "YOUR_ADMIN_PROJECT_NUMBER"
+
+  ID_SANDBOX:           "dev-sandbox-xxxx"
+  # ===============================================================
+
+jobs:
+  # 0. 変更検知
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      infra: ${{ steps.filter.outputs.infra }}
+      app:   ${{ steps.filter.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            infra:
+              - 'infra/**'
+            app:
+              - '*.py'
+              - 'requirements.txt'
+
+  # 1. インフラのデプロイ (Terraform)
+  deploy-infra:
+    needs: check-changes
+    if: github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ env.ID_SANDBOX }}
+          workload_identity_provider: "projects/${{ env.ADMIN_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider"
+          # プロジェクト専用の Manager SA を使用
+          service_account: "dev-manager-sa@${{ env.ID_SANDBOX }}.iam.gserviceaccount.com"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Generate Config Files
+        run: |
+          cat <<EOF > backend.hcl
+          bucket = "${{ env.ADMIN_PROJECT_ID }}-tfstate"
+          prefix = "terraform/state/sandbox/${{ env.APP_NAME }}"
+          EOF
+
+          cat <<EOF > terraform.tfvars
+          project_id = "${{ env.ID_SANDBOX }}"
+          env        = "dev"
+          EOF
+
+      - name: Terraform Deploy
+        working-directory: infra
+        run: |
+          terraform init -backend-config=../backend.hcl
+          terraform apply -auto-approve -var-file=../terraform.tfvars
+
+  # 2. アプリプログラムのデプロイ (gcloud)
+  deploy-app:
+    needs: [check-changes, deploy-infra]
+    if: always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.app == 'true' || needs.check-changes.outputs.infra == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ env.ID_SANDBOX }}
+          workload_identity_provider: "projects/${{ env.ADMIN_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider"
+          service_account: "dev-manager-sa@${{ env.ID_SANDBOX }}.iam.gserviceaccount.com"
+
+      - name: Setup gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy Application (Example)
+        run: |
+          echo "🚀 Deploying Application to Sandbox: ${{ env.ID_SANDBOX }}..."
+          # 例: gcloud run deploy ${{ env.APP_NAME }} --source ./ --project ${{ env.ID_SANDBOX }}

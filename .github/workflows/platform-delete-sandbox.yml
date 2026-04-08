@@ -1,0 +1,54 @@
+name: 'GCP: Delete Sandbox'
+
+on:
+  workflow_dispatch:
+    inputs:
+      sandbox_id:
+        description: '削除するサンドボックスの識別名 (inventory.json 内のキー)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  delete-inventory:
+    name: 'Delete from Inventory'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove from inventory.json
+        run: |
+          INVENTORY_PATH="governance/admin/factory/inventory.json"
+          SANDBOX_ID="${{ github.event.inputs.sandbox_id }}"
+          
+          # jq を使って指定された ID を削除
+          # .sandboxes にキーが存在する場合のみ削除を実行
+          if jq -e ".sandboxes | has(\"$SANDBOX_ID\")" "$INVENTORY_PATH" > /dev/null; then
+            jq "del(.sandboxes[\"$SANDBOX_ID\"])" "$INVENTORY_PATH" > inventory.tmp && mv inventory.tmp "$INVENTORY_PATH"
+            echo "Successfully removed $SANDBOX_ID from inventory.json"
+          else
+            echo "Error: Sandbox ID '$SANDBOX_ID' not found in inventory.json"
+            exit 1
+          fi
+
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add governance/admin/factory/inventory.json
+          git commit -m "fix: auto-delete expired sandbox [${{ github.event.inputs.sandbox_id }}]"
+          git push origin main
+
+      - name: Trigger Factory Deployment
+        run: |
+          echo "🚀 Triggering Factory Deployment (platform-admin.yml) to perform physical deletion..."
+          gh workflow run platform-admin.yml --ref main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

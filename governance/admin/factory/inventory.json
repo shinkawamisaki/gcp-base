@@ -1,0 +1,11 @@
+{
+  "apps": {
+    "sample-app": {
+      "is_audit_host": true,
+      "environments": ["audit", "stg", "prd"],
+      "budget_amount": 50000,
+      "github_repo": "your-org/your-repo"
+    }
+  },
+  "sandboxes": {}
+}

@@ -1,0 +1,281 @@
+name: 'GCP Foundation: Admin Deployment'
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'governance/admin/**'
+      - 'infra/**'
+      - 'modules/**'
+      - '.github/workflows/platform-admin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # 0. 差分チェックジョブ
+  check-changes:
+    name: 'Check Changes'
+    runs-on: ubuntu-latest
+    outputs:
+      foundation: ${{ steps.filter.outputs.foundation }}
+      factory: ${{ steps.filter.outputs.factory }}
+      inventory_changed: ${{ steps.filter.outputs.inventory_changed }}
+      workflow: ${{ steps.filter.outputs.workflow }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            foundation:
+              - 'governance/admin/foundation/**'
+              - 'modules/api_base/**'
+              - 'modules/billing_base/**'
+              - 'modules/monitoring_base/**'
+              - 'modules/security_base/**'
+            factory:
+              - 'governance/admin/factory/**'
+              - 'modules/project_factory/**'
+              - 'modules/vpc_base/**'
+            inventory_changed:
+              - 'governance/admin/factory/inventory.json'
+            workflow:
+              - '.github/workflows/platform-admin.yml'
+
+  # 1. 基盤（Foundation）のデプロイ
+  deploy-foundation:
+    name: 'Apply Foundation'
+    needs: check-changes
+    if: needs.check-changes.outputs.foundation == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: governance/admin/foundation
+    
+    env:
+      TF_VAR_project_id:         ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_org_id:             ${{ secrets.GCP_ORG_ID }}
+      TF_VAR_billing_account_id: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
+      TF_VAR_gh_org_name:        ${{ vars.GH_ORG_NAME }}
+      TF_VAR_gh_repo_name:       ${{ github.event.repository.name }}
+      TF_VAR_app_base_name:      ${{ vars.APP_BASE_NAME }}
+      TF_VAR_region:             ${{ vars.GCP_REGION }}
+      TF_VAR_env:                "admin"
+      TF_VAR_admin_group_email:  ${{ vars.ADMIN_GROUP_EMAIL }}
+      TF_VAR_project_owner:      ${{ vars.PROJECT_OWNER }}
+      TF_VAR_allowed_gh_repositories: '["${{ github.event.repository.name }}"]'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: '${{ vars.GCP_PROJECT_ID }}'
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
+          service_account: 'prd-terraform-runner-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Apply
+        run: |
+          cat <<EOF > backend.hcl
+          bucket = "${{ vars.GCP_PROJECT_ID }}-tfstate"
+          prefix = "terraform/admin/foundation/state"
+          EOF
+          terraform init -backend-config=backend.hcl
+          terraform apply -auto-approve -input=false
+
+  # 2. 工場（Factory）のデプロイ
+  deploy-factory:
+    name: 'Apply Factory'
+    needs: [check-changes, deploy-foundation]
+    if: always() && !cancelled() && (needs.check-changes.outputs.factory == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: governance/admin/factory
+    
+    env:
+      TF_VAR_project_id:         ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_org_id:             ${{ secrets.GCP_ORG_ID }}
+      TF_VAR_billing_account_id: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
+      TF_VAR_gh_org_name:        ${{ vars.GH_ORG_NAME }}
+      TF_VAR_gh_repo_name:       ${{ github.event.repository.name }}
+      TF_VAR_app_base_name:      ${{ vars.APP_BASE_NAME }}
+      TF_VAR_region:             ${{ vars.GCP_REGION }}
+      TF_VAR_env:                "admin"
+      TF_VAR_admin_group_email:  ${{ vars.ADMIN_GROUP_EMAIL }}
+      TF_VAR_project_owner:      ${{ vars.PROJECT_OWNER }}
+      TF_VAR_allowed_gh_repositories: '["${{ github.event.repository.name }}"]'
+      TF_VAR_enable_budget_pubsub: true
+
+    steps:
+      - name: Check Foundation Job Status
+        if: needs.deploy-foundation.result == 'failure'
+        run: exit 1
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Authenticate
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: '${{ vars.GCP_PROJECT_ID }}'
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
+          service_account: 'prd-terraform-runner-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Apply
+        run: |
+          cat <<EOF > backend.hcl
+          bucket = "${{ vars.GCP_PROJECT_ID }}-tfstate"
+          prefix = "terraform/admin/factory/state"
+          EOF
+          terraform init -backend-config=backend.hcl
+          terraform apply -auto-approve -input=false
+
+      - name: Extract Project IDs
+        run: |
+          PROJECTS_JSON=$(terraform output -json created_project_ids)
+          echo "PROJECTS_JSON=$PROJECTS_JSON" >> $GITHUB_ENV
+
+      - name: Send Summary Notification
+        if: always() && github.ref == 'refs/heads/main'
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+        run: |
+          SECRET_NAME="infra-deploy-slack-webhook"
+          SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="$SECRET_NAME" --project="${{ vars.GCP_PROJECT_ID }}")
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            MSG="🚀 *GCP 基盤とプロジェクト工場の更新が完了しました*"
+            MSG="${MSG}"$'\n'"🔑 *Admin プロジェクト番号:* \`${{ vars.GCP_PROJECT_NUMBER }}\`"
+            PAYLOAD=$(jq -n --arg msg "$MSG" '{text: $msg}')
+            curl -s -X POST -H 'Content-type: application/json' --data "$PAYLOAD" $SLACK_WEBHOOK_URL
+          fi
+
+      - name: Notify Developer with Setup Guide
+        if: success() && github.ref == 'refs/heads/main' && (needs.check-changes.outputs.inventory_changed == 'true' || github.event_name == 'workflow_dispatch')
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+          PROJECTS_JSON: ${{ env.PROJECTS_JSON }}
+        run: |
+          SECRET_NAME="infra-sandbox-slack-webhook"
+          SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="$SECRET_NAME" --project="${{ vars.GCP_PROJECT_ID }}")
+
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "Slack Webhook URL not found."
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            APPS_TO_NOTIFY=$(echo "$PROJECTS_JSON" | jq -r '.apps | keys | .[]')
+            SANDBOXES_TO_NOTIFY=$(echo "$PROJECTS_JSON" | jq -r '.sandboxes | keys | .[]')
+          else
+            # jq --argfile の代わりに標準入力から複数のファイルを読み込む方式に変更 (互換性維持)
+            git show HEAD^:governance/admin/factory/inventory.json > inventory_old.json 2>/dev/null || echo '{"apps":{},"sandboxes":{}}' > inventory_old.json
+            
+            # JSON 差分抽出 (古い記法を使わず確実に動作させる)
+            APPS_TO_NOTIFY=$(jq -r -n \
+              --argfile old inventory_old.json \
+              --argfile new inventory.json \
+              '$new.apps | to_entries | .[] | select(.value != $old.apps[.key]) | .key' 2>/dev/null || \
+              jq -r -n \
+              --slurpfile old inventory_old.json \
+              --slurpfile new inventory.json \
+              '$new[0].apps | to_entries | .[] | select(.value != $old[0].apps[.key]) | .key')
+            
+            SANDBOXES_TO_NOTIFY=$(jq -r -n \
+              --argfile old inventory_old.json \
+              --argfile new inventory.json \
+              '$new.sandboxes | to_entries | .[] | select(.value != $old.sandboxes[.key]) | .key' 2>/dev/null || \
+              jq -r -n \
+              --slurpfile old inventory_old.json \
+              --slurpfile new inventory.json \
+              '$new[0].sandboxes | to_entries | .[] | select(.value != $old[0].sandboxes[.key]) | .key')
+          fi
+
+          if [ -z "$APPS_TO_NOTIFY" ] && [ -z "$SANDBOXES_TO_NOTIFY" ]; then
+            echo "No new or modified projects to notify. Skipping."
+            exit 0
+          fi
+
+          for APP_NAME in $APPS_TO_NOTIFY; do
+            app_data=$(echo "$PROJECTS_JSON" | jq -c --arg name "$APP_NAME" '.apps[$name]')
+            [ "$app_data" = "null" ] || [ -z "$app_data" ] && continue
+
+            ID_DEV=$(echo "$app_data" | jq -r '.dev // ""')
+            ID_STG=$(echo "$app_data" | jq -r '.stg // ""')
+            ID_PRD=$(echo "$app_data" | jq -r '.prd // ""')
+            ID_AUDIT=$(echo "$app_data" | jq -r '.audit // ""')
+
+            CB="  # ==============================================================="
+            CB="${CB}"$'\n'"  # ⚙️ App 設定エリア (払い出し済み環境)"
+            CB="${CB}"$'\n'"  # ==============================================================="
+            CB="${CB}"$'\n'"  APP_NAME:             \"$APP_NAME\""
+            CB="${CB}"$'\n'"  ADMIN_PROJECT_ID:     \"${{ vars.GCP_PROJECT_ID }}\""
+            CB="${CB}"$'\n'"  ADMIN_PROJECT_NUMBER: \"${{ vars.GCP_PROJECT_NUMBER }}\""
+            CB="${CB}"$'\n'
+            CB="${CB}"$'\n'"  # 🚀 以下のプロジェクトIDを app-deploy.yml に貼り付けてください"
+            [ "$ID_DEV" != "null" ] && [ -n "$ID_DEV" ] && CB="${CB}"$'\n'"  ID_DEV:     \"$ID_DEV\""
+            [ "$ID_STG" != "null" ] && [ -n "$ID_STG" ] && CB="${CB}"$'\n'"  ID_STG:     \"$ID_STG\""
+            [ "$ID_PRD" != "null" ] && [ -n "$ID_PRD" ] && CB="${CB}"$'\n'"  ID_PRD:     \"$ID_PRD\""
+            [ "$ID_AUDIT" != "null" ] && [ -n "$ID_AUDIT" ] && CB="${CB}"$'\n'"  # ID_AUDIT:   \"$ID_AUDIT\" (監査専用環境)"
+            CB="${CB}"$'\n'"  # ==============================================================="
+
+            MSG="*📦 New Application Environment Ready!*"
+            MSG="${MSG}"$'\n'"アプリ名: \`$APP_NAME\` の払い出し/更新が完了しました。"
+            MSG="${MSG}"$'\n'
+            MSG="${MSG}"$'\n'"以下の設定を \`app-deploy.yml\` の \`env:\` セクションに貼り付けてください："
+            MSG="${MSG}"$'\n'"\`\`\`yaml"
+            MSG="${MSG}"$'\n'"$CB"
+            MSG="${MSG}"$'\n'"\`\`\`"
+            MSG="${MSG}"$'\n'"🚀 準備が整いました。開発を開始しましょう！"
+            
+            PAYLOAD=$(jq -n --arg msg "$MSG" '{text: $msg}')
+            curl -s -X POST -H 'Content-type: application/json' --data "$PAYLOAD" $SLACK_WEBHOOK_URL
+          done
+
+          for SB_KEY in $SANDBOXES_TO_NOTIFY; do
+            SB_ID=$(echo "$PROJECTS_JSON" | jq -r --arg key "$SB_KEY" '.sandboxes[$key] // ""')
+            [ "$SB_ID" = "" ] || [ "$SB_ID" = "null" ] && continue
+
+            EXPIRY=$(jq -r --arg key "$SB_KEY" '.sandboxes[$key].expiry_date // "未設定"' inventory.json)
+            REPO=$(jq -r --arg key "$SB_KEY" '.sandboxes[$key].github_repo // "未設定"' inventory.json)
+
+            SCB="  # ==============================================================="
+            SCB="${SCB}"$'\n'"  # 🧪 Sandbox 設定エリア"
+            SCB="${SCB}"$'\n'"  # ==============================================================="
+            SCB="${SCB}"$'\n'"  APP_NAME:             \"$SB_KEY\""
+            SCB="${SCB}"$'\n'"  ADMIN_PROJECT_ID:     \"${{ vars.GCP_PROJECT_ID }}\""
+            SCB="${SCB}"$'\n'"  ADMIN_PROJECT_NUMBER: \"${{ vars.GCP_PROJECT_NUMBER }}\""
+            SCB="${SCB}"$'\n'
+            SCB="${SCB}"$'\n'"  ID_SANDBOX:           \"$SB_ID\""
+            SCB="${SCB}"$'\n'"  # ==============================================================="
+
+            SMSG="*🧪 New Sandbox Ready!*"
+            SMSG="${SMSG}"$'\n'"サンドボックス: \`$SB_KEY\` の払い出し/更新が完了しました。"
+            SMSG="${SMSG}"$'\n'
+            SMSG="${SMSG}"$'\n'"📅 *自動削除の予定期限:* \`$EXPIRY\`"
+            SMSG="${SMSG}"$'\n'"🔗 *デプロイ元リポジトリ:* \`$REPO\`"
+            SMSG="${SMSG}"$'\n'
+            SMSG="${SMSG}"$'\n'"以下の設定を \`sandbox-deploy.yml\` の \`env:\` セクションに貼り付けてください："
+            SMSG="${SMSG}"$'\n'"\`\`\`yaml"
+            SMSG="${SMSG}"$'\n'"$SCB"
+            SMSG="${SMSG}"$'\n'"\`\`\`"
+            SMSG="${SMSG}"$'\n'"⚠️ 期限が来ると自動削除されますのでご注意ください。"
+            
+            PAYLOAD=$(jq -n --arg msg "$SMSG" '{text: $msg}')
+            curl -s -X POST -H 'Content-type: application/json' --data "$PAYLOAD" $SLACK_WEBHOOK_URL
+          done

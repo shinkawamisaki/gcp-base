@@ -1,0 +1,50 @@
+name: 'GCP Foundation: Governance Deployment'
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'governance/org-policies/**', '.github/workflows/deploy_governance.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  terraform:
+    name: 'Apply Org Policies'
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: governance/org-policies
+
+    env:
+      TF_VAR_org_id:             ${{ secrets.GCP_ORG_ID }}
+      TF_VAR_billing_project_id: ${{ vars.GCP_PROJECT_ID }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate (Privileged SA)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: '${{ vars.GCP_PROJECT_ID }}'
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
+          # 【重要】組織特権を持つ専用 SA を使用
+          service_account: 'prd-org-policy-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+          create_credentials_file: true
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Apply
+        run: |
+          cat <<EOF > backend.hcl
+          bucket = "${{ vars.GCP_PROJECT_ID }}-tfstate"
+          prefix = "terraform/org-policies/state"
+          EOF
+          terraform init -backend-config=backend.hcl
+          terraform apply -auto-approve -input=false

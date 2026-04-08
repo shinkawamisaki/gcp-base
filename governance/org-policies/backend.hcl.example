@@ -1,0 +1,2 @@
+bucket = "YOUR_TFSTATE_BUCKET_NAME"
+prefix = "terraform/org-policies/state"

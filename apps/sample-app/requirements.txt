@@ -1,0 +1,2 @@
+google-cloud-secret-manager==2.16.2
+requests==2.31.0

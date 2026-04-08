@@ -1,0 +1,17 @@
+# ===============================================================
+# 🛡️ GCP Organization Policies: 組織レベル設定シート (雛形)
+# ===============================================================
+
+# [必須] あなたの組織ID (例: "123456789012")
+org_id = "your-org-id"
+
+# [必須] 請求先アカウントID (例: "012345-6789AB-CDEF01")
+# マネージド制約の例外許可（予算通知用SA等）に使用します。
+billing_account_id = "your-billing-account-id"
+
+# [必須] 組織レベルの操作に使用するプロジェクトID (クォータ・課金用)
+# 通常は Admin プロジェクトの ID を指定します。
+billing_project_id = "your-admin-project-id"
+
+# リージョン (東京: "asia-northeast1", 大阪: "asia-northeast2")
+region = "asia-northeast1"
