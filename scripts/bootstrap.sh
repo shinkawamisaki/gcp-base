@@ -198,6 +198,8 @@ REQUIRED_SECRETS=(
   "infra-sandbox-slack-webhook"
   "infra-ops-slack-webhook"
   "infra-monitoring-slack-token"
+  "infra-github-token"
+
 )
 for SECRET in "${REQUIRED_SECRETS[@]}"; do
   if ! gcloud secrets describe "$SECRET" --project="$PROJECT_ID" >/dev/null 2>&1; then
