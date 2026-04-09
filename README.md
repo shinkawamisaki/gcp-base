@@ -160,7 +160,8 @@ terraform import google_org_policy_policy.legacy_allowed_domains organizations/Y
 ## Changelog
 
  [1.0.1] - 2026-04-09
-Uploadし忘れていたフォルダ（module）追加、サンドボックス削除権限が不足していたため追加
+- Uploadし忘れていたフォルダ（module）追加
+- サンドボックス削除権限が不足していたため追加
 - サンドボックス作成時既存データについてもslack通知するバグ改修
 
  [1.0.0] - 2026-04-09
