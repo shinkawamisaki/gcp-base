@@ -7,6 +7,7 @@ on:
       - 'governance/admin/**'
       - 'infra/**'
       - 'modules/**'
+      - 'scripts/**'
       - '.github/workflows/platform-admin.yml'
   workflow_dispatch:
 
@@ -170,6 +171,8 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
           PROJECTS_JSON: ${{ env.PROJECTS_JSON }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
         run: |
           SECRET_NAME="infra-sandbox-slack-webhook"
           SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="$SECRET_NAME" --project="${{ vars.GCP_PROJECT_ID }}")
@@ -179,103 +182,9 @@ jobs:
             exit 0
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            APPS_TO_NOTIFY=$(echo "$PROJECTS_JSON" | jq -r '.apps | keys | .[]')
-            SANDBOXES_TO_NOTIFY=$(echo "$PROJECTS_JSON" | jq -r '.sandboxes | keys | .[]')
-          else
-            # jq --argfile の代わりに標準入力から複数のファイルを読み込む方式に変更 (互換性維持)
-            git show HEAD^:governance/admin/factory/inventory.json > inventory_old.json 2>/dev/null || echo '{"apps":{},"sandboxes":{}}' > inventory_old.json
-            
-            # JSON 差分抽出 (古い記法を使わず確実に動作させる)
-            APPS_TO_NOTIFY=$(jq -r -n \
-              --argfile old inventory_old.json \
-              --argfile new inventory.json \
-              '$new.apps | to_entries | .[] | select(.value != $old.apps[.key]) | .key' 2>/dev/null || \
-              jq -r -n \
-              --slurpfile old inventory_old.json \
-              --slurpfile new inventory.json \
-              '$new[0].apps | to_entries | .[] | select(.value != $old[0].apps[.key]) | .key')
-            
-            SANDBOXES_TO_NOTIFY=$(jq -r -n \
-              --argfile old inventory_old.json \
-              --argfile new inventory.json \
-              '$new.sandboxes | to_entries | .[] | select(.value != $old.sandboxes[.key]) | .key' 2>/dev/null || \
-              jq -r -n \
-              --slurpfile old inventory_old.json \
-              --slurpfile new inventory.json \
-              '$new[0].sandboxes | to_entries | .[] | select(.value != $old[0].sandboxes[.key]) | .key')
-          fi
-
-          if [ -z "$APPS_TO_NOTIFY" ] && [ -z "$SANDBOXES_TO_NOTIFY" ]; then
-            echo "No new or modified projects to notify. Skipping."
-            exit 0
-          fi
-
-          for APP_NAME in $APPS_TO_NOTIFY; do
-            app_data=$(echo "$PROJECTS_JSON" | jq -c --arg name "$APP_NAME" '.apps[$name]')
-            [ "$app_data" = "null" ] || [ -z "$app_data" ] && continue
-
-            ID_DEV=$(echo "$app_data" | jq -r '.dev // ""')
-            ID_STG=$(echo "$app_data" | jq -r '.stg // ""')
-            ID_PRD=$(echo "$app_data" | jq -r '.prd // ""')
-            ID_AUDIT=$(echo "$app_data" | jq -r '.audit // ""')
-
-            CB="  # ==============================================================="
-            CB="${CB}"$'\n'"  # ⚙️ App 設定エリア (払い出し済み環境)"
-            CB="${CB}"$'\n'"  # ==============================================================="
-            CB="${CB}"$'\n'"  APP_NAME:             \"$APP_NAME\""
-            CB="${CB}"$'\n'"  ADMIN_PROJECT_ID:     \"${{ vars.GCP_PROJECT_ID }}\""
-            CB="${CB}"$'\n'"  ADMIN_PROJECT_NUMBER: \"${{ vars.GCP_PROJECT_NUMBER }}\""
-            CB="${CB}"$'\n'
-            CB="${CB}"$'\n'"  # 🚀 以下のプロジェクトIDを app-deploy.yml に貼り付けてください"
-            [ "$ID_DEV" != "null" ] && [ -n "$ID_DEV" ] && CB="${CB}"$'\n'"  ID_DEV:     \"$ID_DEV\""
-            [ "$ID_STG" != "null" ] && [ -n "$ID_STG" ] && CB="${CB}"$'\n'"  ID_STG:     \"$ID_STG\""
-            [ "$ID_PRD" != "null" ] && [ -n "$ID_PRD" ] && CB="${CB}"$'\n'"  ID_PRD:     \"$ID_PRD\""
-            [ "$ID_AUDIT" != "null" ] && [ -n "$ID_AUDIT" ] && CB="${CB}"$'\n'"  # ID_AUDIT:   \"$ID_AUDIT\" (監査専用環境)"
-            CB="${CB}"$'\n'"  # ==============================================================="
-
-            MSG="*📦 New Application Environment Ready!*"
-            MSG="${MSG}"$'\n'"アプリ名: \`$APP_NAME\` の払い出し/更新が完了しました。"
-            MSG="${MSG}"$'\n'
-            MSG="${MSG}"$'\n'"以下の設定を \`app-deploy.yml\` の \`env:\` セクションに貼り付けてください："
-            MSG="${MSG}"$'\n'"\`\`\`yaml"
-            MSG="${MSG}"$'\n'"$CB"
-            MSG="${MSG}"$'\n'"\`\`\`"
-            MSG="${MSG}"$'\n'"🚀 準備が整いました。開発を開始しましょう！"
-            
-            PAYLOAD=$(jq -n --arg msg "$MSG" '{text: $msg}')
-            curl -s -X POST -H 'Content-type: application/json' --data "$PAYLOAD" $SLACK_WEBHOOK_URL
-          done
-
-          for SB_KEY in $SANDBOXES_TO_NOTIFY; do
-            SB_ID=$(echo "$PROJECTS_JSON" | jq -r --arg key "$SB_KEY" '.sandboxes[$key] // ""')
-            [ "$SB_ID" = "" ] || [ "$SB_ID" = "null" ] && continue
-
-            EXPIRY=$(jq -r --arg key "$SB_KEY" '.sandboxes[$key].expiry_date // "未設定"' inventory.json)
-            REPO=$(jq -r --arg key "$SB_KEY" '.sandboxes[$key].github_repo // "未設定"' inventory.json)
-
-            SCB="  # ==============================================================="
-            SCB="${SCB}"$'\n'"  # 🧪 Sandbox 設定エリア"
-            SCB="${SCB}"$'\n'"  # ==============================================================="
-            SCB="${SCB}"$'\n'"  APP_NAME:             \"$SB_KEY\""
-            SCB="${SCB}"$'\n'"  ADMIN_PROJECT_ID:     \"${{ vars.GCP_PROJECT_ID }}\""
-            SCB="${SCB}"$'\n'"  ADMIN_PROJECT_NUMBER: \"${{ vars.GCP_PROJECT_NUMBER }}\""
-            SCB="${SCB}"$'\n'
-            SCB="${SCB}"$'\n'"  ID_SANDBOX:           \"$SB_ID\""
-            SCB="${SCB}"$'\n'"  # ==============================================================="
-
-            SMSG="*🧪 New Sandbox Ready!*"
-            SMSG="${SMSG}"$'\n'"サンドボックス: \`$SB_KEY\` の払い出し/更新が完了しました。"
-            SMSG="${SMSG}"$'\n'
-            SMSG="${SMSG}"$'\n'"📅 *自動削除の予定期限:* \`$EXPIRY\`"
-            SMSG="${SMSG}"$'\n'"🔗 *デプロイ元リポジトリ:* \`$REPO\`"
-            SMSG="${SMSG}"$'\n'
-            SMSG="${SMSG}"$'\n'"以下の設定を \`sandbox-deploy.yml\` の \`env:\` セクションに貼り付けてください："
-            SMSG="${SMSG}"$'\n'"\`\`\`yaml"
-            SMSG="${SMSG}"$'\n'"$SCB"
-            SMSG="${SMSG}"$'\n'"\`\`\`"
-            SMSG="${SMSG}"$'\n'"⚠️ 期限が来ると自動削除されますのでご注意ください。"
-            
-            PAYLOAD=$(jq -n --arg msg "$SMSG" '{text: $msg}')
-            curl -s -X POST -H 'Content-type: application/json' --data "$PAYLOAD" $SLACK_WEBHOOK_URL
-          done
+          # 前回の inventory.json を取得して準備
+          git show HEAD^:governance/admin/factory/inventory.json > inventory_old.json 2>/dev/null || echo '{"apps":{},"sandboxes":{}}' > inventory_old.json
+          
+          # Python スクリプトで賢く通知 (絶対パスで指定)
+          export SLACK_WEBHOOK_URL
+          python3 $GITHUB_WORKSPACE/scripts/notify_inventory_changes.py
