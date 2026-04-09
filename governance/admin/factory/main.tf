@@ -130,6 +130,7 @@ module "sandbox_lifecycle" {
   sandbox_slack_secret_name = var.sandbox_slack_secret_name
   gh_org_name        = var.gh_org_name
   gh_repo_name       = var.gh_repo_name
+  github_token_secret_name = "infra-github-token"
   
   depends_on         = [module.project_factory_apps]
 }

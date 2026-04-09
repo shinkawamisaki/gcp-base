@@ -274,7 +274,7 @@ def run_security_check(event, context):
         summary_text = f"*📊 セキュリティサマリー*\n- 🔴 Critical: {counts['Critical']} 件\n- 🟠 High: {counts['High']} 件\n- 🟡 Medium: {counts['Medium']} 件\n- 🔵 Low: {counts['Low']} 件\n\n"
         security_msg = f"{ai_comment}\n\n{summary_text}🔗 *詳細レポート (GCPコンソールで確認)*\n{report_link}"
         
-        slack_url = get_secret(admin_pj, os.environ.get('SLACK_SECRET_NAME'))
+        slack_url = get_secret(admin_pj, os.environ.get('SLACK_SECRET_NAME', 'infra-audit-slack-webhook'))
         if slack_url:
             requests.post(slack_url, json={"text": security_msg}, timeout=30)
 
@@ -286,7 +286,7 @@ def run_security_check(event, context):
             if warning_projects:
                 sandbox_msg += f"⚠️ *48時間以内に削除予定のサンドボックス (延長はラベルを更新してください)*\n- " + "\n- ".join(warning_projects) + "\n\n"
             
-            sandbox_slack_url = get_secret(admin_pj, os.environ.get('SANDBOX_SLACK_SECRET_NAME'))
+            sandbox_slack_url = get_secret(admin_pj, os.environ.get('SANDBOX_SLACK_SECRET_NAME', 'infra-sandbox-slack-webhook'))
             if sandbox_slack_url:
                 requests.post(sandbox_slack_url, json={"text": sandbox_msg})
             elif slack_url:

@@ -29,13 +29,13 @@ jobs:
           SANDBOX_ID="${{ github.event.inputs.sandbox_id }}"
           
           # jq を使って指定された ID を削除
-          # .sandboxes にキーが存在する場合のみ削除を実行
+          # .sandboxes にキーが存在する場合のみ削除を実行。存在しない場合はスキップ。
           if jq -e ".sandboxes | has(\"$SANDBOX_ID\")" "$INVENTORY_PATH" > /dev/null; then
             jq "del(.sandboxes[\"$SANDBOX_ID\"])" "$INVENTORY_PATH" > inventory.tmp && mv inventory.tmp "$INVENTORY_PATH"
             echo "Successfully removed $SANDBOX_ID from inventory.json"
           else
-            echo "Error: Sandbox ID '$SANDBOX_ID' not found in inventory.json"
-            exit 1
+            echo "Notice: Sandbox ID '$SANDBOX_ID' not found in inventory.json. It might have been already removed."
+            exit 0
           fi
 
       - name: Commit and Push changes

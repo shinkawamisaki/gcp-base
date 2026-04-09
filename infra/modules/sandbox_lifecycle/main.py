@@ -16,7 +16,7 @@ def run_lifecycle_check(event, context):
         admin_pj = project_id
     
     scan_folder = os.environ.get('SCAN_FOLDER_ID')
-    slack_secret = os.environ.get('SANDBOX_SLACK_SECRET_NAME', 'sandbox-slack-webhook-url')
+    slack_secret = os.environ.get('SANDBOX_SLACK_SECRET_NAME', 'infra-sandbox-slack-webhook')
     
     print(f"Lifecycle Check Start. Scan Folder: {scan_folder}")
 
