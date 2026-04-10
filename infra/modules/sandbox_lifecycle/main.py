@@ -56,9 +56,17 @@ def run_lifecycle_check(event, context):
                 # 期限日の 00:00:00 (JST) に削除対象とする
                 expiry_dt = datetime.strptime(expiry, '%Y-%m-%d')
                 owner = labels.get('owner', '不明')
+                diff_days = (expiry_dt.date() - now_jst.date()).days
                 
-                # 期限日（当日）の判定
-                if now_jst.date() >= expiry_dt.date():
+                # A. 始業前（朝7時台）のカウントダウン通知
+                if current_hour == 7:
+                    if diff_days == 0:
+                        final_warnings.append(f"・`{pj}` (所有者: {owner}, 期限: {expiry})")
+                    elif 0 < diff_days <= 3:
+                        daily_warnings.append(f"・`{pj}` (所有者: {owner}, 期限: {expiry}) - ⚠️ あと {diff_days} 日")
+
+                # B. 期限切れ（当日以降）の物理削除トリガー
+                if diff_days <= 0:
                     try:
                         # 【修正】直接削除ではなく、GitHub Actions をトリガーして台帳(inventory.json)から消す
                         print(f"Triggering cleanup for expired sandbox: {pj}")

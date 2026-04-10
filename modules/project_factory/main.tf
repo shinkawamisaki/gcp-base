@@ -16,9 +16,10 @@ resource "google_project" "apps" {
   billing_account = var.billing_account_id
   
   labels = merge(var.common_labels, {
-    env      = each.key
-    managed  = var.is_sandbox ? "terraform-sandbox" : "terraform-project-factory"
-    app_base = var.app_base_name
+    env         = each.key
+    managed     = var.is_sandbox ? "terraform-sandbox" : "terraform-project-factory"
+    app_base    = var.app_base_name
+    expiry_date = var.expiry_date
   })
 
   # サンドボックスの場合は削除を許可、それ以外は Lien で保護

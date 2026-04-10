@@ -80,6 +80,7 @@ module "project_factory_sandboxes" {
   github_repo        = each.value.github_repo
 
   owner_email        = lookup(each.value, "owner_email", var.admin_group_email)
+  expiry_date        = lookup(each.value, "expiry_date", "")
   is_sandbox         = true
 
   budget_amount      = lookup(each.value, "budget_amount", var.sandbox_budget_amount)

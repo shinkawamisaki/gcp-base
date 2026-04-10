@@ -64,6 +64,12 @@ variable "owner_email" {
   default     = ""
 }
 
+variable "expiry_date" {
+  description = "プロジェクトの削除期限 (YYYY-MM-DD)。サンドボックス用。"
+  type        = string
+  default     = ""
+}
+
 variable "is_sandbox" {
   description = "サンドボックスプロジェクトとして作成するかどうか（ガードレールを強化します）"
   type        = bool

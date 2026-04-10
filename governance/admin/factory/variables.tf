@@ -50,7 +50,7 @@ variable "sandbox_budget_amount" {
 variable "audit_schedule" {
   description = "セキュリティ監査の実行スケジュール (Cron 形式)。毎日実行する場合は '0 9 * * *' などを指定します。"
   type        = string
-  default     = "0 9 * * 1"
+  default     = "0 7 * * *"
 }
 
 # 通貨
