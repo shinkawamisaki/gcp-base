@@ -22,7 +22,7 @@
 
 ### 2.1 デプロイ設定の反映
 1.  自分のアプリリポジトリにある以下のファイルを開きます：
-    - 通常プロジェクト: `.github/workflows/main.yml`
+    - 通常プロジェクト: `.github/workflows/app_deploy.yml`
     - サンドボックス: `.github/workflows/sandbox-deploy.yml`
 2.  Slack 通知からコピーした内容を、`env:` セクションにそのまま貼り付けます。
 
