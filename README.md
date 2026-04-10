@@ -161,6 +161,7 @@ terraform import google_org_policy_policy.legacy_allowed_domains organizations/Y
 
  [1.0.2] - 2026-04-10
 - サンドボックス削除通知・削除処理バグ改修（削除期限の値の受け渡し漏れ、削除期限判定の誤り）
+- ドキュメント内のymlの名称修正
 
  [1.0.1] - 2026-04-09
 - Uploadし忘れていたフォルダ（module）追加
