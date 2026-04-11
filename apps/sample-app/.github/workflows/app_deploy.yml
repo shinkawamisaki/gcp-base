@@ -1,4 +1,4 @@
-name: 'App Deployment (Dev/Stg/Prd)'
+name: 'App Deployment (Smart Pipeline)'
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       target_env:
-        description: 'デプロイ先環境 (dev, stg, prd)'
+        description: '手動デプロイ先 (dev, stg, prd)'
         required: true
         default: 'stg'
         type: choice
@@ -18,20 +18,6 @@ on:
 permissions:
   contents: read
   id-token: write
-
-env:
-  # ===============================================================
-  # ⚙️ App 設定エリア (dev, stg, prd 用)
-  # Slack 通知からコピーした内容をここに貼り付けてください
-  # ===============================================================
-  APP_NAME:             "sample-app"
-  ADMIN_PROJECT_ID:     "YOUR_ADMIN_PROJECT_ID"
-  ADMIN_PROJECT_NUMBER: "YOUR_ADMIN_PROJECT_NUMBER"
-
-  ID_DEV:     "dev-sample-app-xxxx"
-  ID_STG:     "stg-sample-app-xxxx"
-  ID_PRD:     "prd-sample-app-xxxx"
-  # ===============================================================
 
 jobs:
   # 0. 変更検知
@@ -52,92 +38,63 @@ jobs:
               - '*.py'
               - 'requirements.txt'
 
-  # 1. インフラのデプロイ (Terraform)
-  deploy-infra:
+  # ---------------------------------------------------------------
+  # 1. DEV 環境デプロイ
+  # ---------------------------------------------------------------
+  deploy-dev:
     needs: check-changes
-    if: github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.infra == 'true'
-    runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.target_env || 'stg' }}
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+    if: |
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.target_env == 'dev')) &&
+      vars.ID_DEV != '' && !contains(vars.ID_DEV, 'sample-app')
+    uses: ./.github/workflows/_deploy_template.yml
+    with:
+      target_env: 'dev'
+      project_id: ${{ vars.ID_DEV }}
+      app_name: ${{ vars.APP_NAME }}
+      admin_project_id: ${{ vars.ADMIN_PROJECT_ID }}
+      admin_project_number: ${{ vars.ADMIN_PROJECT_NUMBER }}
+      deploy_infra: ${{ github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.infra == 'true' }}
+      deploy_app: ${{ github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.app == 'true' || needs.check-changes.outputs.infra == 'true' }}
+    secrets: inherit
 
-      - name: Resolve Deployment Identity
-        id: config
-        run: |
-          TARGET_ENV="${{ github.event.inputs.target_env || 'stg' }}"
-          PROJECT_ID=""
-          if [ "$TARGET_ENV" = "dev" ]; then PROJECT_ID="${{ env.ID_DEV }}"
-          elif [ "$TARGET_ENV" = "stg" ]; then PROJECT_ID="${{ env.ID_STG }}"
-          elif [ "$TARGET_ENV" = "prd" ]; then PROJECT_ID="${{ env.ID_PRD }}"
-          fi
+  # ---------------------------------------------------------------
+  # 2. STG 環境デプロイ
+  # ---------------------------------------------------------------
+  deploy-stg:
+    needs: [check-changes, deploy-dev]
+    if: |
+      always() && 
+      (needs.deploy-dev.result == 'success' || needs.deploy-dev.result == 'skipped') &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.target_env == 'stg')) &&
+      vars.ID_STG != '' && !contains(vars.ID_STG, 'sample-app')
+    uses: ./.github/workflows/_deploy_template.yml
+    with:
+      target_env: 'stg'
+      project_id: ${{ vars.ID_STG }}
+      app_name: ${{ vars.APP_NAME }}
+      admin_project_id: ${{ vars.ADMIN_PROJECT_ID }}
+      admin_project_number: ${{ vars.ADMIN_PROJECT_NUMBER }}
+      deploy_infra: ${{ github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.infra == 'true' }}
+      deploy_app: ${{ github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.app == 'true' || needs.check-changes.outputs.infra == 'true' }}
+    secrets: inherit
 
-          if [ "$TARGET_ENV" = "prd" ]; then
-            AUTH_SA="prd-terraform-runner-sa@${{ env.ADMIN_PROJECT_ID }}.iam.gserviceaccount.com"
-          else
-            AUTH_SA="${TARGET_ENV}-manager-sa@${PROJECT_ID}.iam.gserviceaccount.com"
-          fi
-
-          echo "target_env=$TARGET_ENV" >> $GITHUB_OUTPUT
-          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
-          echo "auth_sa=$AUTH_SA" >> $GITHUB_OUTPUT
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: "projects/${{ env.ADMIN_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider"
-          service_account: "${{ steps.config.outputs.auth_sa }}"
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Deploy
-        working-directory: infra
-        run: |
-          cat <<EOF > backend.hcl
-          bucket = "${{ env.ADMIN_PROJECT_ID }}-tfstate"
-          prefix = "terraform/state/${{ env.APP_NAME }}/${{ steps.config.outputs.target_env }}"
-          EOF
-          
-          terraform init -backend-config=backend.hcl
-          terraform apply -auto-approve -var="project_id=${{ steps.config.outputs.project_id }}" -var="env=${{ steps.config.outputs.target_env }}"
-
-  # 2. アプリプログラムのデプロイ (gcloud)
-  deploy-app:
-    needs: [check-changes, deploy-infra]
-    if: always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.app == 'true' || needs.check-changes.outputs.infra == 'true')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Resolve Deployment Identity
-        id: config
-        run: |
-          TARGET_ENV="${{ github.event.inputs.target_env || 'stg' }}"
-          [ "$TARGET_ENV" = "dev" ] && PJ="${{ env.ID_DEV }}"
-          [ "$TARGET_ENV" = "stg" ] && PJ="${{ env.ID_STG }}"
-          [ "$TARGET_ENV" = "prd" ] && PJ="${{ env.ID_PRD }}"
-          
-          if [ "$TARGET_ENV" = "prd" ]; then
-            AUTH_SA="prd-terraform-runner-sa@${{ env.ADMIN_PROJECT_ID }}.iam.gserviceaccount.com"
-          else
-            AUTH_SA="${TARGET_ENV}-manager-sa@${PJ}.iam.gserviceaccount.com"
-          fi
-          
-          echo "project_id=$PJ" >> $GITHUB_OUTPUT
-          echo "auth_sa=$AUTH_SA" >> $GITHUB_OUTPUT
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: "projects/${{ env.ADMIN_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider"
-          service_account: "${{ steps.config.outputs.auth_sa }}"
-
-      - name: Setup gcloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Deploy Application (Example)
-        run: |
-          echo "🚀 Deploying Application to ${{ steps.config.outputs.project_id }} using ${{ steps.config.outputs.auth_sa }}..."
-          # 例: gcloud run deploy ${{ env.APP_NAME }} --source ./ --project ${{ steps.config.outputs.project_id }}
+  # ---------------------------------------------------------------
+  # 3. PRD 環境デプロイ
+  # ---------------------------------------------------------------
+  deploy-prd:
+    needs: [check-changes, deploy-stg]
+    if: |
+      always() && 
+      (needs.deploy-stg.result == 'success' || needs.deploy-stg.result == 'skipped') &&
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.target_env == 'prd') &&
+      vars.ID_PRD != '' && !contains(vars.ID_PRD, 'sample-app')
+    uses: ./.github/workflows/_deploy_template.yml
+    with:
+      target_env: 'prd'
+      project_id: ${{ vars.ID_PRD }}
+      app_name: ${{ vars.APP_NAME }}
+      admin_project_id: ${{ vars.ADMIN_PROJECT_ID }}
+      admin_project_number: ${{ vars.ADMIN_PROJECT_NUMBER }}
+      deploy_infra: ${{ github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.infra == 'true' }}
+      deploy_app: ${{ github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.app == 'true' || needs.check-changes.outputs.infra == 'true' }}
+    secrets: inherit

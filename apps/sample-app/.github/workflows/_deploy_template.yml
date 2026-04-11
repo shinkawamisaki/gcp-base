@@ -1,0 +1,75 @@
+name: '_Deploy Template'
+
+on:
+  workflow_call:
+    inputs:
+      target_env:
+        required: true
+        type: string
+      project_id:
+        required: true
+        type: string
+      app_name:
+        required: true
+        type: string
+      admin_project_id:
+        required: true
+        type: string
+      admin_project_number:
+        required: true
+        type: string
+      deploy_infra:
+        required: true
+        type: boolean
+      deploy_app:
+        required: true
+        type: boolean
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_env }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Resolve Deployment Identity
+        id: config
+        run: |
+          if [ "${{ inputs.target_env }}" = "prd" ]; then
+            AUTH_SA="prd-terraform-runner-sa@${{ inputs.admin_project_id }}.iam.gserviceaccount.com"
+          else
+            AUTH_SA="${{ inputs.target_env }}-manager-sa@${{ inputs.project_id }}.iam.gserviceaccount.com"
+          fi
+          echo "auth_sa=$AUTH_SA" >> $GITHUB_OUTPUT
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: "projects/${{ inputs.admin_project_number }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider"
+          service_account: "${{ steps.config.outputs.auth_sa }}"
+
+      - name: Setup Terraform
+        if: ${{ inputs.deploy_infra }}
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Deploy
+        if: ${{ inputs.deploy_infra }}
+        working-directory: infra
+        run: |
+          cat <<EOF > backend.hcl
+          bucket = "${{ inputs.admin_project_id }}-tfstate"
+          prefix = "terraform/state/${{ inputs.app_name }}/${{ inputs.target_env }}"
+          EOF
+          
+          terraform init -backend-config=backend.hcl
+          terraform apply -auto-approve -var="project_id=${{ inputs.project_id }}" -var="env=${{ inputs.target_env }}"
+
+      - name: Setup gcloud SDK
+        if: ${{ inputs.deploy_app }}
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy Application
+        if: ${{ inputs.deploy_app }}
+        run: |
+          echo "🚀 Deploying Application to ${{ inputs.project_id }} [${{ inputs.target_env }}]..."

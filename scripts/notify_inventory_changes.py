@@ -4,12 +4,11 @@ import requests
 import sys
 
 def get_inventory(file_name):
-    # 1. カレントディレクトリで探す (factory内で実行された場合)
-    # 2. governance/admin/factory/ 配下で探す (ルートで実行された場合)
+    # 実行ディレクトリに関わらずファイルを探す (factory 内なら ./ 、ルートなら governance/admin/factory/)
     search_paths = [
         file_name,
         os.path.join('governance/admin/factory', file_name),
-        os.path.join('../../../', file_name) # factoryから見たルート (万が一用)
+        os.path.join('../../../', file_name)
     ]
     
     for path in search_paths:
@@ -21,82 +20,107 @@ def get_inventory(file_name):
                 continue
     return {"apps": {}, "sandboxes": {}}
 
+def set_github_variable(token, repo, var_name, value):
+    """GitHub API を使ってリポジトリ変数を設定または更新する"""
+    url = f"https://api.github.com/repos/{repo}/actions/variables"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    data = {"name": var_name, "value": str(value)}
+    
+    # まずは作成を試みる
+    res = requests.post(url, headers=headers, json=data)
+    if res.status_code in [409, 422]: # 409: Already exists, 422: Unprocessable Entity
+        url_patch = f"{url}/{var_name}"
+        res_patch = requests.patch(url_patch, headers=headers, json=data)
+        if res_patch.status_code not in [201, 204]:
+            raise Exception(f"Failed to update variable {var_name}: {res_patch.status_code}")
+    elif res.status_code != 201:
+        raise Exception(f"Failed to create variable {var_name}: {res.status_code} {res.text}")
+
 def notify_slack(webhook_url, text):
-    if not webhook_url:
-        print("Webhook URL is empty. Skipping notification.")
-        return
+    if not webhook_url: return
     try:
-        response = requests.post(webhook_url, json={"text": text}, timeout=30)
-        response.raise_for_status()
+        requests.post(webhook_url, json={"text": text}, timeout=30)
     except Exception as e:
-        print(f"Error sending Slack notification: {e}")
+        print(f"Error sending Slack: {e}")
 
 def main():
     projects_json_str = os.environ.get('PROJECTS_JSON', '{}')
     projects_data = json.loads(projects_json_str)
     
     webhook_url = os.environ.get('SLACK_WEBHOOK_URL')
-    admin_project_id = os.environ.get('GCP_PROJECT_ID')
-    admin_project_number = os.environ.get('GCP_PROJECT_NUMBER')
+    gh_token = os.environ.get('GITHUB_TOKEN') # PAT
+    admin_id = os.environ.get('GCP_PROJECT_ID')
+    admin_num = os.environ.get('GCP_PROJECT_NUMBER')
 
-    # インベントリファイルの読み込み (新旧比較)
     old_inv = get_inventory('inventory_old.json')
     new_inv = get_inventory('inventory.json')
 
-    # 1. Apps の差分抽出 (新規追加 or 変更)
-    for app_name, new_config in new_inv.get('apps', {}).items():
+    sync_results = {"success": [], "failed": []}
+
+    # 1. Apps の処理
+    for app_name, config in new_inv.get('apps', {}).items():
         old_config = old_inv.get('apps', {}).get(app_name)
-        if not old_config or new_config != old_config:
-            app_out = projects_data.get('apps', {}).get(app_name, {})
-            if not app_out: continue
+        if not old_config or config != old_config:
+            repo = config.get('github_repo')
+            if not repo or not gh_token: continue
+            
+            try:
+                print(f"🔄 Syncing variables for {app_name} to {repo}...")
+                set_github_variable(gh_token, repo, "APP_NAME", app_name)
+                set_github_variable(gh_token, repo, "ADMIN_PROJECT_ID", admin_id)
+                set_github_variable(gh_token, repo, "ADMIN_PROJECT_NUMBER", admin_num)
+                
+                app_out = projects_data.get('apps', {}).get(app_name, {})
+                if app_out.get('dev'): set_github_variable(gh_token, repo, "ID_DEV", app_out['dev'])
+                if app_out.get('stg'): set_github_variable(gh_token, repo, "ID_STG", app_out['stg'])
+                if app_out.get('prd'): set_github_variable(gh_token, repo, "ID_PRD", app_out['prd'])
+                
+                sync_results["success"].append(app_name)
+            except Exception as e:
+                sync_results["failed"].append(f"{app_name} ({e})")
 
-            msg = f"*📦 New Application Environment Ready!*\n"
-            msg += f"アプリ名: `{app_name}` の払い出し/更新が完了しました。\n\n"
-            msg += "以下の設定を `app-deploy.yml` の `env:` セクションに貼り付けてください：\n"
-            msg += "```yaml\n"
-            msg += "  # ===============================================================\n"
-            msg += "  # ⚙️ App 設定エリア (払い出し済み環境)\n"
-            msg += "  # ===============================================================\n"
-            msg += f"  APP_NAME:             \"{app_name}\"\n"
-            msg += f"  ADMIN_PROJECT_ID:     \"{admin_project_id}\"\n"
-            msg += f"  ADMIN_PROJECT_NUMBER: \"{admin_project_number}\"\n\n"
-            msg += "  # 🚀 以下のプロジェクトIDを app-deploy.yml に貼り付けてください\n"
-            if app_out.get('dev'):   msg += f"  ID_DEV:     \"{app_out['dev']}\"\n"
-            if app_out.get('stg'):   msg += f"  ID_STG:     \"{app_out['stg']}\"\n"
-            if app_out.get('prd'):   msg += f"  ID_PRD:     \"{app_out['prd']}\"\n"
-            if app_out.get('audit'): msg += f"  # ID_AUDIT:   \"{app_out['audit']}\" (監査専用環境)\n"
-            msg += "  # ===============================================================\n"
-            msg += "```\n"
-            msg += "🚀 準備が整いました。開発を開始しましょう！"
-            notify_slack(webhook_url, msg)
-
-    # 2. Sandboxes の差分抽出 (新規追加 or 変更)
-    for sb_key, new_config in new_inv.get('sandboxes', {}).items():
+    # 2. Sandboxes の処理
+    for sb_key, config in new_inv.get('sandboxes', {}).items():
         old_config = old_inv.get('sandboxes', {}).get(sb_key)
-        if not old_config or new_config != old_config:
-            sb_id = projects_data.get('sandboxes', {}).get(sb_key)
-            if not sb_id: continue
+        if not old_config or config != old_config:
+            repo = config.get('github_repo')
+            if not repo or not gh_token: continue
+            
+            try:
+                print(f"🧪 Syncing variables for Sandbox {sb_key} to {repo}...")
+                set_github_variable(gh_token, repo, "APP_NAME", sb_key)
+                set_github_variable(gh_token, repo, "ADMIN_PROJECT_ID", admin_id)
+                set_github_variable(gh_token, repo, "ADMIN_PROJECT_NUMBER", admin_num)
+                
+                sb_id = projects_data.get('sandboxes', {}).get(sb_key)
+                if sb_id: set_github_variable(gh_token, repo, "ID_SANDBOX", sb_id)
+                
+                sync_results["success"].append(sb_key)
+            except Exception as e:
+                sync_results["failed"].append(f"{sb_key} ({e})")
 
-            expiry = new_config.get('expiry_date', '未設定')
-            repo = new_config.get('github_repo', '未設定')
+    # Slack まとめ報告
+    if sync_results["success"] or sync_results["failed"]:
+        msg = "🚀 *GitHub Variables Sync Complete*\n"
+        if sync_results["success"]:
+            msg += "✅ *以下のプロジェクトのデプロイ準備が整いました*:\n"
+            for s in sync_results["success"]:
+                msg += f"・`{s}`\n"
+            msg += "\n💡 対象リポジトリの GitHub Actions を実行してデプロイを開始してください。\n"
+            msg += "※ 既に Variables を設定済みのため、YAML へのコピペは不要です。"
+            
+        if sync_results["failed"]:
+            msg += "\n\n❌ *同期失敗 (管理者確認が必要)*:\n- " + "\n- ".join(sync_results["failed"])
+            msg += "\n⚠️ リポジトリが存在するか、トークンの権限（Variables: Write）を確認してください。"
+        
+        notify_slack(webhook_url, msg)
 
-            msg = f"*🧪 New Sandbox Ready!*\n"
-            msg += f"サンドボックス: `{sb_key}` の払い出し/更新が完了しました。\n\n"
-            msg += f"📅 *自動削除の予定期限:* `{expiry}`\n"
-            msg += f"🔗 *デプロイ元リポジトリ:* `{repo}`\n\n"
-            msg += "以下の設定を `sandbox-deploy.yml` の `env:` セクションに貼り付けてください：\n"
-            msg += "```yaml\n"
-            msg += "  # ===============================================================\n"
-            msg += "  # 🧪 Sandbox 設定エリア\n"
-            msg += "  # ===============================================================\n"
-            msg += f"  APP_NAME:             \"{sb_key}\"\n"
-            msg += f"  ADMIN_PROJECT_ID:     \"{admin_project_id}\"\n"
-            msg += f"  ADMIN_PROJECT_NUMBER: \"{admin_project_number}\"\n\n"
-            msg += f"  ID_SANDBOX:           \"{sb_id}\"\n"
-            msg += "  # ===============================================================\n"
-            msg += "```\n"
-            msg += "⚠️ 期限が来ると自動削除されますのでご注意ください。"
-            notify_slack(webhook_url, msg)
+    # 1件でも失敗があれば、Action 自体はエラーで落とす（ただし処理は最後までやりきった状態）
+    if sync_results["failed"]:
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

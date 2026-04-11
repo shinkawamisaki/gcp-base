@@ -16,7 +16,7 @@ permissions:
   id-token: write
 
 jobs:
-  # 0. 差分チェックジョブ
+  # 0. 変更検知
   check-changes:
     name: 'Check Changes'
     runs-on: ubuntu-latest
@@ -55,7 +55,6 @@ jobs:
     defaults:
       run:
         working-directory: governance/admin/foundation
-    
     env:
       TF_VAR_project_id:         ${{ vars.GCP_PROJECT_ID }}
       TF_VAR_org_id:             ${{ secrets.GCP_ORG_ID }}
@@ -68,23 +67,18 @@ jobs:
       TF_VAR_admin_group_email:  ${{ vars.ADMIN_GROUP_EMAIL }}
       TF_VAR_project_owner:      ${{ vars.PROJECT_OWNER }}
       TF_VAR_allowed_gh_repositories: '["${{ github.event.repository.name }}"]'
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
       - name: Authenticate
-        id: auth
         uses: google-github-actions/auth@v2
         with:
           project_id: '${{ vars.GCP_PROJECT_ID }}'
           workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
           service_account: 'prd-terraform-runner-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init & Apply
+      - name: Terraform Apply
         run: |
           cat <<EOF > backend.hcl
           bucket = "${{ vars.GCP_PROJECT_ID }}-tfstate"
@@ -97,12 +91,12 @@ jobs:
   deploy-factory:
     name: 'Apply Factory'
     needs: [check-changes, deploy-foundation]
-    if: always() && !cancelled() && (needs.check-changes.outputs.factory == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
+    # 💡 インベントリ変更時も確実に実行されるよう条件を網羅
+    if: always() && !cancelled() && (needs.check-changes.outputs.factory == 'true' || needs.check-changes.outputs.inventory_changed == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: governance/admin/factory
-    
     env:
       TF_VAR_project_id:         ${{ vars.GCP_PROJECT_ID }}
       TF_VAR_org_id:             ${{ secrets.GCP_ORG_ID }}
@@ -116,17 +110,14 @@ jobs:
       TF_VAR_project_owner:      ${{ vars.PROJECT_OWNER }}
       TF_VAR_allowed_gh_repositories: '["${{ github.event.repository.name }}"]'
       TF_VAR_enable_budget_pubsub: true
-
     steps:
-      - name: Check Foundation Job Status
+      - name: Check Foundation Status
         if: needs.deploy-foundation.result == 'failure'
         run: exit 1
-
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 2
-
       - name: Authenticate
         id: auth
         uses: google-github-actions/auth@v2
@@ -134,11 +125,9 @@ jobs:
           project_id: '${{ vars.GCP_PROJECT_ID }}'
           workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
           service_account: 'prd-terraform-runner-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init & Apply
+      - name: Terraform Apply
         run: |
           cat <<EOF > backend.hcl
           bucket = "${{ vars.GCP_PROJECT_ID }}-tfstate"
@@ -146,27 +135,15 @@ jobs:
           EOF
           terraform init -backend-config=backend.hcl
           terraform apply -auto-approve -input=false
-
       - name: Extract Project IDs
         run: |
           PROJECTS_JSON=$(terraform output -json created_project_ids)
           echo "PROJECTS_JSON=$PROJECTS_JSON" >> $GITHUB_ENV
 
-      - name: Send Summary Notification
-        if: always() && github.ref == 'refs/heads/main'
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
-        run: |
-          SECRET_NAME="infra-deploy-slack-webhook"
-          SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="$SECRET_NAME" --project="${{ vars.GCP_PROJECT_ID }}")
-          if [ -n "$SLACK_WEBHOOK_URL" ]; then
-            MSG="🚀 *GCP 基盤とプロジェクト工場の更新が完了しました*"
-            MSG="${MSG}"$'\n'"🔑 *Admin プロジェクト番号:* \`${{ vars.GCP_PROJECT_NUMBER }}\`"
-            PAYLOAD=$(jq -n --arg msg "$MSG" '{text: $msg}')
-            curl -s -X POST -H 'Content-type: application/json' --data "$PAYLOAD" $SLACK_WEBHOOK_URL
-          fi
-
-      - name: Notify Developer with Setup Guide
+      # ---------------------------------------------------------------
+      # 🚀 通知 ＆ GitHub Variables 同期ステップ
+      # ---------------------------------------------------------------
+      - name: Notify and Sync Variables
         if: success() && github.ref == 'refs/heads/main' && (needs.check-changes.outputs.inventory_changed == 'true' || github.event_name == 'workflow_dispatch')
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
@@ -174,17 +151,18 @@ jobs:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
         run: |
-          SECRET_NAME="infra-sandbox-slack-webhook"
-          SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="$SECRET_NAME" --project="${{ vars.GCP_PROJECT_ID }}")
-
+          # 💡 開発者用チャンネルの Webhook を取得
+          SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="infra-sandbox-slack-webhook" --project="${{ vars.GCP_PROJECT_ID }}")
+          
+          # GitHub 操作用トークンの取得
+          GITHUB_TOKEN=$(gcloud secrets versions access latest --secret="infra-github-token" --project="${{ vars.GCP_PROJECT_ID }}")
+          
           if [ -z "$SLACK_WEBHOOK_URL" ]; then
-            echo "Slack Webhook URL not found."
-            exit 0
+            echo "Slack Webhook URL (for developers) not found. Skipping notification."
           fi
 
-          # 前回の inventory.json を取得して準備
           git show HEAD^:governance/admin/factory/inventory.json > inventory_old.json 2>/dev/null || echo '{"apps":{},"sandboxes":{}}' > inventory_old.json
           
-          # Python スクリプトで賢く通知 (絶対パスで指定)
           export SLACK_WEBHOOK_URL
+          export GITHUB_TOKEN
           python3 $GITHUB_WORKSPACE/scripts/notify_inventory_changes.py
