@@ -128,3 +128,9 @@ variable "enable_budget_pubsub" {
   type        = bool
   default     = false
 }
+
+variable "gcp_console_billing_url_template" {
+  description = "請求レポートのURLテンプレート"
+  type        = string
+  default     = "https://console.cloud.google.com/billing/reports?project={project_id}&grouping=SERVICE"
+}

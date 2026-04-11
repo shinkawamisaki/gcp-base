@@ -218,8 +218,9 @@ resource "google_cloudfunctions2_function" "budget_notifier" {
     timeout_seconds    = 60
     service_account_email = google_service_account.budget_notifier_sa.email
     environment_variables = {
-      SLACK_SECRET_ID = var.slack_secret_name
-      PROJECT_ID      = var.project_id
+      SLACK_SECRET_ID         = var.slack_secret_name
+      PROJECT_ID              = var.project_id
+      GCP_CONSOLE_URL_BILLING = var.gcp_console_billing_url_template
     }
   }
 

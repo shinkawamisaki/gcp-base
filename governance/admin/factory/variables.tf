@@ -189,3 +189,16 @@ variable "enable_budget_pubsub" {
   type        = bool
   default     = false
 }
+
+# --- GCP コンソール URL 管理 ---
+variable "gcp_console_billing_url_template" {
+  description = "請求レポートのURLテンプレート"
+  type        = string
+  default     = "https://console.cloud.google.com/billing/reports?project={project_id}&grouping=SERVICE"
+}
+
+variable "gcp_console_storage_url_template" {
+  description = "GCSブラウザのURLテンプレート"
+  type        = string
+  default     = "https://console.cloud.google.com/storage/browser/_details/{bucket}/{filename}?project={project_id}"
+}

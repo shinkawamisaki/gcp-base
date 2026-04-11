@@ -36,3 +36,9 @@ variable "slack_secret_name" {
   type        = string
   default     = "infra-billing-slack-webhook"
 }
+
+variable "gcp_console_billing_url_template" {
+  description = "請求レポートのURLテンプレート。{project_id}が動的に置換されます。"
+  type        = string
+  default     = "https://console.cloud.google.com/billing/reports?project={project_id}&grouping=SERVICE"
+}

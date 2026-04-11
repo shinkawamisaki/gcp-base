@@ -50,7 +50,12 @@ def notify_slack(cloud_event):
         emoji = "🚨" if threshold_percent >= 100 else "⚠️"
         timing_text = f"予算の *{threshold_percent:.0f}%* を超過"
         
-        report_url = f"https://console.cloud.google.com/billing/reports?project={project_id}&grouping=SERVICE"
+        # 請求レポートへのディープリンク作成 (環境変数から取得。なければデフォルト)
+        url_template = os.environ.get(
+            'BILLING_REPORT_URL_TEMPLATE', 
+            'https://console.cloud.google.com/billing/reports?project={project_id}&grouping=SERVICE'
+        )
+        report_url = url_template.format(project_id=project_id)
         
         message = (
             f"{emoji} *GCP予算アラート: {budget_display_name}*\n"

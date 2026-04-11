@@ -27,9 +27,12 @@ def notify_slack(event, context):
         project_id = os.environ.get('PROJECT_ID', 'Unknown')
         slack_url = get_secret("prd-slack-webhook-url")
         
-        # 4. 請求レポートへのディープリンク作成 (サービス別内訳を表示するURL)
-        # ※billing_account_id が取得できない場合は、プロジェクトIDベースのリンクを生成
-        report_url = f"https://console.cloud.google.com/billing/reports?project={project_id}&grouping=SERVICE"
+        # 4. 請求レポートへのディープリンク作成 (環境変数から取得。なければデフォルト)
+        url_template = os.environ.get(
+            'BILLING_REPORT_URL_TEMPLATE', 
+            'https://console.cloud.google.com/billing/reports?project={project_id}&grouping=SERVICE'
+        )
+        report_url = url_template.format(project_id=project_id)
         
         # 5. Slackメッセージの構築
         message = {

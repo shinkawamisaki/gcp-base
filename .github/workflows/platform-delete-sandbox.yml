@@ -23,30 +23,39 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Remove from inventory.json
-        run: |
-          INVENTORY_PATH="governance/admin/factory/inventory.json"
-          SANDBOX_ID="${{ github.event.inputs.sandbox_id }}"
-          
-          # jq を使って指定された ID を削除
-          # .sandboxes にキーが存在する場合のみ削除を実行。存在しない場合はスキップ。
-          if jq -e ".sandboxes | has(\"$SANDBOX_ID\")" "$INVENTORY_PATH" > /dev/null; then
-            jq "del(.sandboxes[\"$SANDBOX_ID\"])" "$INVENTORY_PATH" > inventory.tmp && mv inventory.tmp "$INVENTORY_PATH"
-            echo "Successfully removed $SANDBOX_ID from inventory.json"
-          else
-            echo "Notice: Sandbox ID '$SANDBOX_ID' not found in inventory.json. It might have been already removed."
-            exit 0
-          fi
-
-      - name: Commit and Push changes
+      - name: Remove from inventory.json and Commit
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add governance/admin/factory/inventory.json
-          git commit -m "fix: auto-delete expired sandbox [${{ github.event.inputs.sandbox_id }}]"
-          git push origin main
+          
+          INVENTORY_PATH="governance/admin/factory/inventory.json"
+          SANDBOX_ID="${{ github.event.inputs.sandbox_id }}"
+          
+          # 1. jq で削除を試みる (キーがなければ何もしない)
+          if jq -e ".sandboxes | has(\"$SANDBOX_ID\")" "$INVENTORY_PATH" > /dev/null; then
+            jq "del(.sandboxes[\"$SANDBOX_ID\"])" "$INVENTORY_PATH" > inventory.tmp && mv inventory.tmp "$INVENTORY_PATH"
+            echo "Successfully modified inventory.json to remove $SANDBOX_ID"
+          else
+            echo "Notice: Sandbox ID '$SANDBOX_ID' not found in inventory.json."
+          fi
+
+          # 2. 差分をステージング
+          git add "$INVENTORY_PATH"
+          
+          # 3. 実際に変更があった場合のみコミットとプッシュを実行
+          # 💡 ここで git commit や push が失敗した場合は、exit 1 となりジョブは正常にエラー終了します。
+          if ! git diff --cached --exit-code --quiet; then
+            git commit -m "fix: auto-delete expired sandbox [$SANDBOX_ID]"
+            git push origin main
+            echo "pushed=true" >> $GITHUB_ENV
+          else
+            echo "Notice: No actual changes to commit (Sandbox already removed)."
+            echo "pushed=false" >> $GITHUB_ENV
+          fi
 
       - name: Trigger Factory Deployment
+        # 💡 インベントリが実際に更新された場合のみ、Terraform を起動する
+        if: env.pushed == 'true'
         run: |
           echo "🚀 Triggering Factory Deployment (platform-admin.yml) to perform physical deletion..."
           gh workflow run platform-admin.yml --ref main

@@ -69,3 +69,9 @@ variable "audit_schedule" {
   type        = string
   default     = "0 9 * * 1"
 }
+
+variable "gcp_console_storage_url_template" {
+  description = "GCSブラウザのURLテンプレート"
+  type        = string
+  default     = "https://console.cloud.google.com/storage/browser/_details/{bucket}/{filename}?project={project_id}"
+}

@@ -59,6 +59,9 @@ module "project_factory_apps" {
   is_sandbox         = false
   terraform_runner_email = data.google_service_account.terraform_runner.email
   
+  # URL テンプレートの伝播
+  gcp_console_billing_url_template = var.gcp_console_billing_url_template
+  
   # Pub/Sub 連携設定
   billing_alert_topic  = local.budget_notification_topic_id
   enable_budget_pubsub = var.enable_budget_pubsub
@@ -117,6 +120,7 @@ module "weekly_check" {
   slack_secret_name  = var.slack_secret_name
   sandbox_slack_secret_name = var.sandbox_slack_secret_name
   audit_schedule     = var.audit_schedule
+  gcp_console_storage_url_template = var.gcp_console_storage_url_template
   
   depends_on         = [module.project_factory_apps]
 }

@@ -259,8 +259,16 @@ def run_security_check(event, context):
                 storage_client = storage.Client()
                 blob = storage_client.bucket(report_bucket).blob(filename)
                 blob.upload_from_string(raw_report.encode('utf-8'), content_type='text/markdown; charset=utf-8')
-                report_link = f"https://console.cloud.google.com/storage/browser/_details/{report_bucket}/{filename}?project={project_id}"
-            except: pass
+                
+                # レポートへのリンク生成 (環境変数から取得。なければデフォルト)
+                url_template = os.environ.get(
+                    'GCP_CONSOLE_URL_STORAGE', 
+                    'https://console.cloud.google.com/storage/browser/_details/{bucket}/{filename}?project={project_id}'
+                )
+                report_link = url_template.format(bucket=report_bucket, filename=filename, project_id=project_id)
+            except Exception as e:
+                print(f"Error uploading report to GCS: {e}")
+                report_link = "N/A (Upload Failed)"
 
         # --- 2. 各チャンネルへの通知実行 ---
 

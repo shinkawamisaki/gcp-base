@@ -261,6 +261,7 @@ resource "google_cloudfunctions2_function" "weekly_audit_func" {
       SCAN_FOLDER_IDS   = join(",", var.scan_folder_ids)
       # 組織レベルで設定済みの監査ログ（プログラムに教えるためのヒント）
       INHERITED_AUDIT_SERVICES = "iam.googleapis.com,secretmanager.googleapis.com,storage.googleapis.com"
+      GCP_CONSOLE_URL_STORAGE  = var.gcp_console_storage_url_template
       }
       }
 
