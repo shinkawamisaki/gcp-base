@@ -160,7 +160,7 @@ terraform import google_org_policy_policy.legacy_allowed_domains organizations/Y
 ## Changelog
 
  [1.0.3] - 2026-04-11
-[Feature]アプリデプロイ・パイプラインの刷新
+[Feature]APPデプロイ・パイプラインの刷新
 - 自動連鎖デプロイ：これまでは push するとstg環境だけにデプロイされていましたが、今回の修正で 「まずdev環境 へ。成功したら自動でstg環境へ」 と、1 回のプッシュで複数の環境を順番に更新できるようになりました。
 - 設定ガイド連動型の自動スキップ ：dev環境を持っていないプロジェクトでも同じワークフローが使えるよう、ID_DEV が空欄なら Actionsが自分で判断してdevデプロイをスキップしstgから開始する仕組みを導入しました。
 - テンプレート化による共通化 :複雑なデプロイ命令を _deploy_template.yml に1箇所にまとめたことで、インデントミスや設定漏れが起きにくい、メンテしやすい構造に刷新しました。
