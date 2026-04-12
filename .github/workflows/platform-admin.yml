@@ -153,9 +153,12 @@ jobs:
         run: |
           # 💡 開発者用チャンネルの Webhook を取得
           SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="infra-sandbox-slack-webhook" --project="${{ vars.GCP_PROJECT_ID }}")
-          
-          # GitHub 操作用トークンの取得
-          GITHUB_TOKEN=$(gcloud secrets versions access latest --secret="infra-github-token" --project="${{ vars.GCP_PROJECT_ID }}")
+
+          # 💡 管理者用チャンネルの Webhook を取得
+          DEPLOY_SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="infra-deploy-slack-webhook" --project="${{ vars.GCP_PROJECT_ID }}")
+          export DEPLOY_SLACK_WEBHOOK_URL
+
+          # GitHub 操作用トークンの取得          GITHUB_TOKEN=$(gcloud secrets versions access latest --secret="infra-github-token" --project="${{ vars.GCP_PROJECT_ID }}")
           
           if [ -z "$SLACK_WEBHOOK_URL" ]; then
             echo "Slack Webhook URL (for developers) not found. Skipping notification."
