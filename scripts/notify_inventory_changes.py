@@ -51,6 +51,7 @@ def main():
     projects_data = json.loads(projects_json_str)
     
     webhook_url = os.environ.get('SLACK_WEBHOOK_URL')
+    deploy_webhook_url = os.environ.get('DEPLOY_SLACK_WEBHOOK_URL')
     gh_token = os.environ.get('GITHUB_TOKEN') # PAT
     admin_id = os.environ.get('GCP_PROJECT_ID')
     admin_num = os.environ.get('GCP_PROJECT_NUMBER')
@@ -58,7 +59,7 @@ def main():
     old_inv = get_inventory('inventory_old.json')
     new_inv = get_inventory('inventory.json')
 
-    sync_results = {"success": [], "failed": []}
+    sync_results = {"success_admin": [], "success_dev": [], "failed": []}
 
     # 1. Apps の処理
     for app_name, config in new_inv.get('apps', {}).items():
@@ -78,7 +79,21 @@ def main():
                 if app_out.get('stg'): set_github_variable(gh_token, repo, "ID_STG", app_out['stg'])
                 if app_out.get('prd'): set_github_variable(gh_token, repo, "ID_PRD", app_out['prd'])
                 
-                sync_results["success"].append(app_name)
+                # 管理者用サマリー (🚀)
+                app_info_admin = [f"・🚀 *{app_name}*"]
+                # 開発者用ガイド (📦)
+                app_info_dev = [f"📦 *New Application Environment Ready!*\nアプリ名: `{app_name}` の払い出しが完了しました。\n\n🚀 **GitHub Variables は自動同期済みです！**\nそのまま `main` ブランチへ Push して `{app_name}` のデプロイを開始してください。"]
+                
+                envs_info = []
+                for env in config.get('environments', []):
+                    p_id = app_out.get(env, "N/A")
+                    envs_info.append(f"    - `{env}` : `{p_id}`")
+                
+                app_info_admin.extend(envs_info)
+                app_info_dev.append("\n".join(envs_info))
+                
+                sync_results["success_admin"].append("\n".join(app_info_admin))
+                sync_results["success_dev"].append("\n".join(app_info_dev))
             except Exception as e:
                 sync_results["failed"].append(f"{app_name} ({e})")
 
@@ -98,25 +113,28 @@ def main():
                 sb_id = projects_data.get('sandboxes', {}).get(sb_key)
                 if sb_id: set_github_variable(gh_token, repo, "ID_SANDBOX", sb_id)
                 
-                sync_results["success"].append(sb_key)
+                sync_results["success_dev"].append(f"・🚀 *{sb_key}* (dev: `{sb_id}`)")
             except Exception as e:
                 sync_results["failed"].append(f"{sb_key} ({e})")
 
     # Slack まとめ報告
-    if sync_results["success"] or sync_results["failed"]:
-        msg = "🚀 *GitHub Variables Sync Complete*\n"
-        if sync_results["success"]:
-            msg += "✅ *以下のプロジェクトのデプロイ準備が整いました*:\n"
-            for s in sync_results["success"]:
-                msg += f"・`{s}`\n"
-            msg += "\n💡 対象リポジトリの GitHub Actions を実行してデプロイを開始してください。\n"
-            msg += "※ 既に Variables を設定済みのため、YAML へのコピペは不要です。"
-            
+    # A. 管理者向け通知 (#gcp-infra)
+    if sync_results["success_admin"] or sync_results["failed"]:
+        msg_admin = "🚀 *GCP Infrastructure Provisioning Summary*\n"
+        if sync_results["success_admin"]:
+            msg_admin += "✅ *以下のプロジェクト資産が作成/更新されました*:\n"
+            for s in sync_results["success_admin"]:
+                msg_admin += f"{s}\n"
+
         if sync_results["failed"]:
-            msg += "\n\n❌ *同期失敗 (管理者確認が必要)*:\n- " + "\n- ".join(sync_results["failed"])
-            msg += "\n⚠️ リポジトリが存在するか、トークンの権限（Variables: Write）を確認してください。"
-        
-        notify_slack(webhook_url, msg)
+            msg_admin += "\n❌ *同期失敗 (要確認)*:\n- " + "\n- ".join(sync_results["failed"])
+
+        notify_slack(deploy_webhook_url or webhook_url, msg_admin)
+
+    # B. 開発者向け通知 (#gcp-sandbox)
+    if sync_results["success_dev"]:
+        for msg_dev in sync_results["success_dev"]:
+            notify_slack(webhook_url, msg_dev)
 
     # 1件でも失敗があれば、Action 自体はエラーで落とす（ただし処理は最後までやりきった状態）
     if sync_results["failed"]:
