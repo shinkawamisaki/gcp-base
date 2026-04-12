@@ -161,6 +161,7 @@ terraform import google_org_policy_policy.legacy_allowed_domains organizations/Y
 
  [1.1.1] - 2026-04-12
 - [BugFix]サンドボックス削除処理改修（削除対象がない時エラーで止まる不具合）
+
 - [Update]プロジェクト払い出し時のslack内容・通知先の修正
 
  [1.1.0] - 2026-04-11
