@@ -49,7 +49,7 @@ def notify_slack(event, context):
         
         # 6. 通知実行
         requests.post(slack_url, json=message)
-        print(f"Notification sent for project {project_id} (cost: {cost})")
+        print(f"Notification sent for project ...{project_id[-4:] if project_id else 'N/A'} (cost: {cost})")
         
     except Exception as e:
         print(f"Error in notify_slack: {e}")

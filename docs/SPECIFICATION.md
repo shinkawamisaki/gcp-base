@@ -33,6 +33,7 @@
 
 1.  **検知**: `sandbox_lifecycle` ボットが 1時間おきに稼働。ラベル `expiry_date` を現在時刻と比較。
 2.  **削除依頼 (Slack & GitHub)**: 期限切れを検知すると、ボットが Slack に「自動クリーンアップ開始」を通知し、GitHub API を叩いて `platform-delete-sandbox.yml` を起動。
+    - **認証**: **GitHub App** による Installation Access Token (IAT) を使用（PAT からの移行により、特定リポジトリへの最小権限アクセスを実現）。
 3.  **台帳更新**: ワークフローが `inventory.json` から当該サンドボックスの定義を自動削除し、`main` に Push。
 4.  **物理削除**: 台帳更新をトリガーに Terraform が起動。「定義が消えた」ことを検知し、GCP 上のプロジェクトを安全に物理削除（destroy）する。
 

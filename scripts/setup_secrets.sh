@@ -45,8 +45,15 @@ set_secret() {
         return
     fi
 
-    echo -e "${YELLOW}Wait: Paste your value below and press Enter.${NC}"
-    read -p "Value for $NAME: " SECRET_VALUE
+    if [[ "$NAME" == *"private-key"* ]]; then
+        echo -e "${YELLOW}Wait: This secret supports MULTI-LINE input.${NC}"
+        echo -e "${YELLOW}1. Paste your Private Key below.${NC}"
+        echo -e "${YELLOW}2. Press [Enter] then [Ctrl+D] to save.${NC}"
+        SECRET_VALUE=$(cat)
+    else
+        echo -e "${YELLOW}Wait: Paste your value below and press Enter.${NC}"
+        read -p "Value for $NAME: " SECRET_VALUE
+    fi
     echo "" # 改行用
 
     if [ -z "$SECRET_VALUE" ]; then
@@ -71,6 +78,9 @@ set_secret "$ADMIN_PJ" "infra-billing-slack-webhook" "予算超過・コスト�
 set_secret "$ADMIN_PJ" "infra-sandbox-slack-webhook" "サンドボックス環境のライフサイクル通知用 (#gcp-sandbox)"
 set_secret "$ADMIN_PJ" "infra-monitoring-slack-token" "外観監視 (Uptime Check) の Slack 通知用ボットトークン (xoxb-...)"
 set_secret "$ADMIN_PJ" "infra-github-token" "サンドボックスの自動削除（台帳更新）に使用する GitHub Fine-grained PAT"
+set_secret "$ADMIN_PJ" "infra-github-app-id" "GitHub App の App ID"
+set_secret "$ADMIN_PJ" "infra-github-app-private-key" "GitHub App の Private Key (-----BEGIN RSA PRIVATE KEY----- ...)"
+set_secret "$ADMIN_PJ" "infra-github-app-installation-id" "GitHub App の Installation ID"
 
 echo -e "\n${GREEN}================================================================${NC}"
 echo -e "${GREEN}🎉 All secrets have been processed safely in Admin project!${NC}"

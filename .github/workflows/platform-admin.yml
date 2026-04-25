@@ -152,20 +152,18 @@ jobs:
           GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
         run: |
           # 💡 開発者用チャンネルの Webhook を取得
-          SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="infra-sandbox-slack-webhook" --project="${{ vars.GCP_PROJECT_ID }}")
+          export SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="infra-sandbox-slack-webhook" --project="${{ vars.GCP_PROJECT_ID }}")
 
           # 💡 管理者用チャンネルの Webhook を取得
-          DEPLOY_SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="infra-deploy-slack-webhook" --project="${{ vars.GCP_PROJECT_ID }}")
-          export DEPLOY_SLACK_WEBHOOK_URL
+          export DEPLOY_SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="infra-deploy-slack-webhook" --project="${{ vars.GCP_PROJECT_ID }}")
 
-          # GitHub 操作用トークンの取得          GITHUB_TOKEN=$(gcloud secrets versions access latest --secret="infra-github-token" --project="${{ vars.GCP_PROJECT_ID }}")
-          
-          if [ -z "$SLACK_WEBHOOK_URL" ]; then
-            echo "Slack Webhook URL (for developers) not found. Skipping notification."
-          fi
+          # GitHub 操作用情報の取得 (App & PAT)
+          export GITHUB_APP_ID=$(gcloud secrets versions access latest --secret="infra-github-app-id" --project="${{ vars.GCP_PROJECT_ID }}")
+          export GITHUB_APP_PRIVATE_KEY=$(gcloud secrets versions access latest --secret="infra-github-app-private-key" --project="${{ vars.GCP_PROJECT_ID }}")
+          export GITHUB_APP_INSTALLATION_ID=$(gcloud secrets versions access latest --secret="infra-github-app-installation-id" --project="${{ vars.GCP_PROJECT_ID }}")
+          export GITHUB_TOKEN=$(gcloud secrets versions access latest --secret="infra-github-token" --project="${{ vars.GCP_PROJECT_ID }}")
 
           git show HEAD^:governance/admin/factory/inventory.json > inventory_old.json 2>/dev/null || echo '{"apps":{},"sandboxes":{}}' > inventory_old.json
-          
-          export SLACK_WEBHOOK_URL
-          export GITHUB_TOKEN
+
           python3 $GITHUB_WORKSPACE/scripts/notify_inventory_changes.py
+

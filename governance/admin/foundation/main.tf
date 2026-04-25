@@ -96,10 +96,35 @@ data "google_secret_manager_secret" "required_secrets" {
     var.billing_slack_secret_name,
     var.sandbox_slack_secret_name,
     var.monitoring_slack_secret_name,
-    "infra-gemini-api-key"
+    "infra-gemini-api-key",
+    "infra-github-app-id",
+    "infra-github-app-private-key",
+    "infra-github-app-installation-id"
   ])
   project   = data.google_project.admin.project_id
   secret_id = each.value
+}
+
+# GitHub Actions (Runner SA) が GitHub App の情報を読み取れるようにします
+resource "google_secret_manager_secret_iam_member" "runner_github_app_id_accessor" {
+  project   = data.google_project.admin.project_id
+  secret_id = "infra-github-app-id"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${data.google_service_account.terraform_runner.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "runner_github_app_key_accessor" {
+  project   = data.google_project.admin.project_id
+  secret_id = "infra-github-app-private-key"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${data.google_service_account.terraform_runner.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "runner_github_app_inst_accessor" {
+  project   = data.google_project.admin.project_id
+  secret_id = "infra-github-app-installation-id"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${data.google_service_account.terraform_runner.email}"
 }
 
 # GitHub Actions が監視用トークンを読み取れるようにします

@@ -29,6 +29,10 @@ BILLING_ID=$(get_var "billing_account_id")
 REGION=$(get_var "region")
 GH_ORG_NAME=$(get_var "gh_org_name")
 
+# Runner SA の定義 (2回目実行時でもチェック等で正しく参照できるよう、冒頭で定義)
+RUNNER_SA_NAME="prd-terraform-runner-sa"
+RUNNER_SA_EMAIL="$RUNNER_SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
@@ -144,9 +148,6 @@ gcloud services enable \
   compute.googleapis.com --project="$PROJECT_ID"
 
 # --- 4. Terraform Runner SA の作成 ---
-RUNNER_SA_NAME="prd-terraform-runner-sa"
-RUNNER_SA_EMAIL="$RUNNER_SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
-
 if ! gcloud iam service-accounts describe "$RUNNER_SA_EMAIL" --project="$PROJECT_ID" >/dev/null 2>&1; then
   echo -e "${YELLOW}[4/6] Terraform Runner SA を作成中...${NC}"
   gcloud iam service-accounts create "$RUNNER_SA_NAME" --display-name="[Infrastructure] Terraform Runner SA" --project="$PROJECT_ID"
@@ -182,7 +183,9 @@ if ! gcloud storage buckets describe "gs://$BUCKET_NAME" >/dev/null 2>&1; then
   gcloud storage buckets create "gs://$BUCKET_NAME" --location="$REGION" --project="$PROJECT_ID"
   gcloud storage buckets update "gs://$BUCKET_NAME" --versioning
 fi
-gcloud storage buckets add-iam-policy-binding "gs://$BUCKET_NAME" --member="serviceAccount:$RUNNER_SA_EMAIL" --role="roles/storage.admin" --quiet >/dev/null 2>&1
+
+# 【修正】--condition=None を追加し、非対話モードでのエラーを回避
+gcloud storage buckets add-iam-policy-binding "gs://$BUCKET_NAME" --member="serviceAccount:$RUNNER_SA_EMAIL" --role="roles/storage.admin" --condition=None --quiet >/dev/null 2>&1
 
 # --- 6. 組織・請求レベルの権限委譲 ---
 echo -e "\n${BLUE}組織レベルの権限委譲およびシークレットの初期化を実行します${NC}"
@@ -199,7 +202,9 @@ REQUIRED_SECRETS=(
   "infra-ops-slack-webhook"
   "infra-monitoring-slack-token"
   "infra-github-token"
-
+  "infra-github-app-id"
+  "infra-github-app-private-key"
+  "infra-github-app-installation-id"
 )
 for SECRET in "${REQUIRED_SECRETS[@]}"; do
   if ! gcloud secrets describe "$SECRET" --project="$PROJECT_ID" >/dev/null 2>&1; then

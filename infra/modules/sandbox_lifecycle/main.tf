@@ -168,6 +168,27 @@ resource "google_secret_manager_secret_iam_member" "github_token_accessor" {
   member    = "serviceAccount:${google_service_account.lifecycle_sa.email}"
 }
 
+resource "google_secret_manager_secret_iam_member" "github_app_id_accessor" {
+  project   = var.admin_project_id
+  secret_id = "infra-github-app-id"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.lifecycle_sa.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "github_app_key_accessor" {
+  project   = var.admin_project_id
+  secret_id = "infra-github-app-private-key"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.lifecycle_sa.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "github_app_inst_accessor" {
+  project   = var.admin_project_id
+  secret_id = "infra-github-app-installation-id"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.lifecycle_sa.email}"
+}
+
 # --- 2. Cloud Function 本体 (Gen2) ---
 data "archive_file" "lifecycle_source" {
   type        = "zip"
@@ -199,7 +220,7 @@ resource "google_cloudfunctions2_function" "lifecycle_func" {
   description = "Daily sandbox expiry check and notification"
 
   build_config {
-    runtime     = "python310"
+    runtime     = "python311"
     entry_point = "run_lifecycle_check"
     service_account = google_service_account.lifecycle_build_sa.id
     

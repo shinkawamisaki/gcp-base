@@ -1,4 +1,6 @@
-google-cloud-resource-manager>=1.10.0
-google-cloud-secret-manager>=2.16.0
-google-api-python-client>=2.88.0
-requests>=2.31.0
+google-cloud-resource-manager
+google-cloud-secret-manager
+google-api-python-client
+requests
+PyJWT
+cryptography

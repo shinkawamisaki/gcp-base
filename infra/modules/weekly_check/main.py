@@ -15,7 +15,7 @@ def run_security_check(event, context):
     scan_folders = os.environ.get('SCAN_FOLDER_IDS', '').split(',')
     enable_ai = os.environ.get('ENABLE_AI_SUMMARY', 'true').lower() == 'true'
     
-    print(f"Audit Start. Current PJ: {project_id}, Admin PJ: {admin_pj}")
+    print(f"Security Audit Process Started. (Target: ...{project_id[-4:] if project_id else 'N/A'})")
 
     try:
         # 1. 監査対象プロジェクトの列挙 (フォルダ配下をスキャン)

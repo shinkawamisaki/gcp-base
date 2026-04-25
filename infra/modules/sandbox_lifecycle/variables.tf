@@ -34,7 +34,7 @@ variable "gh_repo_name" {
 }
 
 variable "github_token_secret_name" {
-  description = "GitHub PAT (Personal Access Token) のシークレット名"
+  description = "GitHub 認証用シークレット名 (PAT または GitHub App 認証情報)"
   type        = string
   default     = "infra-github-token"
 }
