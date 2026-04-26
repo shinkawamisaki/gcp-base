@@ -309,7 +309,9 @@ def get_secret(pj, name):
         name_path = f"projects/{pj}/secrets/{name}/versions/latest"
         res = client.access_secret_version(request={"name": name_path})
         return res.payload.data.decode("UTF-8").strip()
-    except: return None
+    except Exception:
+        print("Security Notice: Failed to retrieve configuration from Secret Manager.")
+        return None
 
 def get_ai_summary(api_key, text):
     # Gemini 2.5-flash (2026年最新モデル) を使用

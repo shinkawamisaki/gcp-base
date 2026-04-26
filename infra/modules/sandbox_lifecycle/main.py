@@ -168,6 +168,6 @@ def get_secret(pj, name):
         path = f"projects/{pj}/secrets/{name}/versions/latest"
         res = client.access_secret_version(request={"name": path})
         return res.payload.data.decode("UTF-8").strip()
-    except Exception as e:
-        print(f"Error accessing secret {name}: {e}")
+    except Exception:
+        print("Security Notice: Failed to retrieve required credentials from Secret Manager.")
         return None

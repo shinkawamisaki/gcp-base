@@ -96,8 +96,8 @@ def main():
             try:
                 auth = GitHubAppAuth(app_id, private_key, inst_id)
                 gh_token = auth.get_installation_access_token()
-            except Exception as e:
-                print(f"Failed to authenticate with GitHub App: {e}")
+            except Exception:
+                print("Security Notice: GitHub App authentication failed. Check credentials and permissions.")
 
     old_inv = get_inventory('inventory_old.json')
     new_inv = get_inventory('inventory.json')
