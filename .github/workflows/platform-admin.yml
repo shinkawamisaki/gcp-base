@@ -141,9 +141,9 @@ jobs:
           echo "PROJECTS_JSON=$PROJECTS_JSON" >> $GITHUB_ENV
 
       # ---------------------------------------------------------------
-      # 🚀 通知 ＆ GitHub Variables 同期ステップ
+      # 🚀 通知・同期・ブランチ保護 設定ステップ
       # ---------------------------------------------------------------
-      - name: Notify and Sync Variables
+      - name: Notify, Sync, and Setup Protection
         if: success() && github.ref == 'refs/heads/main' && (needs.check-changes.outputs.inventory_changed == 'true' || github.event_name == 'workflow_dispatch')
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
@@ -151,19 +151,67 @@ jobs:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
         run: |
-          # 💡 開発者用チャンネルの Webhook を取得
+          set -e
+          # ---------------------------------------------------------------
+          # 1. Python スクリプトの実行 (通知＆変数同期)
+          # ---------------------------------------------------------------
+          echo "--- Running Python script for notification and variable sync ---"
+
+          # 必要な認証情報を環境変数にエクスポート
           export SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="infra-sandbox-slack-webhook" --project="${{ vars.GCP_PROJECT_ID }}")
-
-          # 💡 管理者用チャンネルの Webhook を取得
           export DEPLOY_SLACK_WEBHOOK_URL=$(gcloud secrets versions access latest --secret="infra-deploy-slack-webhook" --project="${{ vars.GCP_PROJECT_ID }}")
-
-          # GitHub 操作用情報の取得 (App & PAT)
           export GITHUB_APP_ID=$(gcloud secrets versions access latest --secret="infra-github-app-id" --project="${{ vars.GCP_PROJECT_ID }}")
           export GITHUB_APP_PRIVATE_KEY=$(gcloud secrets versions access latest --secret="infra-github-app-private-key" --project="${{ vars.GCP_PROJECT_ID }}")
           export GITHUB_APP_INSTALLATION_ID=$(gcloud secrets versions access latest --secret="infra-github-app-installation-id" --project="${{ vars.GCP_PROJECT_ID }}")
           export GITHUB_TOKEN=$(gcloud secrets versions access latest --secret="infra-github-token" --project="${{ vars.GCP_PROJECT_ID }}")
 
+          # 変更前のインベントリを取得
           git show HEAD^:governance/admin/factory/inventory.json > inventory_old.json 2>/dev/null || echo '{"apps":{},"sandboxes":{}}' > inventory_old.json
 
+          # Python スクリプトの依存関係をインストール
+          pip install "pyjwt<3.0.0" "requests<3.0.0"
+
+          # スクリプトを実行
           python3 $GITHUB_WORKSPACE/scripts/notify_inventory_changes.py
+
+          # ---------------------------------------------------------------
+          # 2. ブランチ保護ルールの設定
+          # ---------------------------------------------------------------
+          echo "--- Setting up branch protection for new repositories ---"
+          
+          OLD_INVENTORY="inventory_old.json"
+          NEW_INVENTORY="governance/admin/factory/inventory.json"
+
+          # 新旧インベントリからリポジトリリストを抽出・ソート
+          jq -r '(.apps // {}) | to_entries[] | .value.github_repo // empty | select(. != "")' "$NEW_INVENTORY" | sort > new_app_repos.txt
+          jq -r '(.apps // {}) | to_entries[] | .value.github_repo // empty | select(. != "")' "$OLD_INVENTORY" | sort > old_app_repos.txt
+          
+          jq -r '(.sandboxes // {}) | to_entries[] | .value.github_repo // empty | select(. != "")' "$NEW_INVENTORY" | sort > new_sandbox_repos.txt
+          jq -r '(.sandboxes // {}) | to_entries[] | .value.github_repo // empty | select(. != "")' "$OLD_INVENTORY" | sort > old_sandbox_repos.txt
+
+          # 新しく追加されたリポジトリのみを抽出
+          NEW_APPS=$(comm -23 new_app_repos.txt old_app_repos.txt)
+          NEW_SANDBOXES=$(comm -23 new_sandbox_repos.txt old_sandbox_repos.txt)
+
+          if [ -z "$NEW_APPS" ] && [ -z "$NEW_SANDBOXES" ]; then
+            echo "No new repositories detected. Skipping branch protection setup."
+            exit 0
+          fi
+          
+          # スクリプトに GitHub App トークンを使うよう指示
+          export USE_GITHUB_APP_TOKEN="true"
+
+          for repo in $NEW_APPS; do
+            if [ -n "$repo" ]; then
+              echo "Setting up branch protection for App repo: $repo"
+              bash $GITHUB_WORKSPACE/scripts/setup_required_checks.sh --repo "$repo"
+            fi
+          done
+
+          for repo in $NEW_SANDBOXES; do
+            if [ -n "$repo" ]; then
+              echo "Setting up branch protection for Sandbox repo: $repo"
+              bash $GITHUB_WORKSPACE/scripts/setup_required_checks.sh --repo "$repo" --with-sandbox-critical
+            fi
+          done
 

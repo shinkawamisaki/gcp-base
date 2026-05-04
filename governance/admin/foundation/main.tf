@@ -187,6 +187,32 @@ resource "google_organization_policy" "restrict_locations" {
 }
 
 # ===============================================================
+# 6. 逆引き仕様書 (Changelogs) 保管バケット
+# ===============================================================
+resource "google_storage_bucket" "changelogs" {
+  name          = "${var.project_id}-changelog-store"
+  project       = data.google_project.admin.project_id
+  location      = var.region
+
+  force_destroy               = false
+  public_access_prevention    = "enforced"
+  uniform_bucket_level_access = true
+
+  versioning {
+    enabled = true
+  }
+
+  lifecycle_rule {
+    condition {
+      age = 365
+    }
+    action {
+      type = "Delete"
+    }
+  }
+}
+
+# ===============================================================
 # Outputs (Factory で使用するためにエクスポート)
 # ===============================================================
 

@@ -14,6 +14,8 @@
     - Gemini 2.5-flash が「今すぐ対応すべき Top 5」を抽出してSlack 通知でおしらせします。
 5.  **開発者向け自動セットアップ**
     - プロジェクト完成時、開発者はサンプルキットをDLするだけでWIFによるapply/deployが可能に。
+6.  **AI 駆動型クロス検証 (Pre-commit Hook)**
+    - Gemini 2.5-flash がコミット前に設計思想 (`.clinerules`) との整合性を自動レビュー。承認された変更の逆引き仕様書（変更証跡）を自動生成してGCSバケットに直送・保存し、検証結果を Datadog へメトリクスとして送信します（OSS向けに環境がない場合のスキップ機能あり）。
 
 
 ## 前提条件 (Prerequisites)
@@ -64,6 +66,10 @@ gcp-base/
    ./scripts/setup_secrets.sh
    ```
    ※ `setup_secrets.sh` を実行すると、Slack Webhook URL や Gemini API キーの入力を求められます。
+4. **Git フックの有効化（必須）**: AIクロス検証（Pre-commit Hook）をローカルで有効にするため、以下のコマンドを実行します。
+   ```bash
+   git config core.hooksPath .githooks
+   ```
 ### Step 2: ガードレールの展開 (Governance)
 組織全体のルール（ドメイン制限の緩和等）を適用します。
 
@@ -170,6 +176,10 @@ WIF（GitHub連携）、予算通知、監視ボットなどを構築します�
 terraform import google_org_policy_policy.legacy_allowed_domains organizations/YOUR_ORG_ID/policies/iam.allowedPolicyMemberDomains
 ```
 ## Changelog
+ [1.3.0] - 2026-05-04
+- [Feature] コミット前にGeminiによるAIクロス検証(Pre-commit Hook)を追加し、承認された変更の逆引き仕様書をGCSへ自動保存・Datadogへメトリクス送信するよう実装。
+- [Feature] アプリ・サンドボックス環境向けに、Checkovによるセキュリティガードレールを導入（脆弱性を含むコードをCIでブロック）。
+
  [1.2.1] - 2026-04-26
 - [BugFix] 実行ログにおける機密情報およびメタデータの露出を修正。
 - 各種ボット（ライフサイクル、監査）の実行ログに含まれていたプロジェクトIDを末尾4桁に匿名化。
@@ -214,3 +224,4 @@ terraform import google_org_policy_policy.legacy_allowed_domains organizations/Y
 
 ## ライセンス
 Apache License 2.0
+ 
