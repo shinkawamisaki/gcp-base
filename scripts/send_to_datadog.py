@@ -27,8 +27,8 @@ def get_datadog_api_key():
             text=True, stderr=subprocess.DEVNULL
         ).strip()
         return api_key
-    except Exception as e:
-        print(f"[WARN] Failed to fetch secret '{secret_name}': {e}")
+    except Exception:
+        print(f"[WARN] Failed to fetch secret '{secret_name}'. (Error details hidden for security)")
         
     return None
 
@@ -72,8 +72,8 @@ def send_metric(metric_name, value):
                 print(f"[INFO] Successfully sent metric '{metric_name}' to Datadog.")
             else:
                 print(f"[WARN] Datadog API returned status: {response.status}")
-    except Exception as e:
-        print(f"[ERROR] Failed to send metric to Datadog: {e}")
+    except Exception:
+        print("[ERROR] Failed to send metric to Datadog. (Error details hidden for security)")
 
 def main():
     if len(sys.argv) != 2:
