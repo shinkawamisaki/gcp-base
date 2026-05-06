@@ -28,7 +28,7 @@ def get_datadog_api_key():
         ).strip()
         return api_key
     except Exception:
-        print(f"[WARN] Failed to fetch secret '{secret_name}'. (Error details hidden for security)")
+        print("[WARN] Failed to fetch secret from Secret Manager. (Error details hidden for security)")
         
     return None
 

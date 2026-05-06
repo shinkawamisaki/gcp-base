@@ -176,6 +176,10 @@ WIF（GitHub連携）、予算通知、監視ボットなどを構築します�
 terraform import google_org_policy_policy.legacy_allowed_domains organizations/YOUR_ORG_ID/policies/iam.allowedPolicyMemberDomains
 ```
 ## Changelog
+ [1.3.1] - 2026-05-06
+- [BugFix] Datadog送信スクリプトにてCodeQL（SAST）警告となるシークレット名の平文ログ出力を修正。
+- [Update] プロジェクト憲法（`.clinerules`）に静的解析(SAST)対応および機密情報の平文ログ出力禁止ルールを追記。
+
  [1.3.0] - 2026-05-04
 - [Feature] コミット前にGeminiによるAIクロス検証(Pre-commit Hook)を追加し、承認された変更の逆引き仕様書をGCSへ自動保存・Datadogへメトリクス送信するよう実装。
 - [Feature] アプリ・サンドボックス環境向けに、Checkovによるセキュリティガードレールを導入（脆弱性を含むコードをCIでブロック）。
