@@ -3,9 +3,9 @@
 # ===============================================================
 locals {
   common_labels = {
-    env      = var.env
-    managed  = "terraform"
-    project  = var.project_id
-    owner    = var.project_owner
+    env     = var.env
+    managed = "terraform"
+    project = var.project_id
+    owner   = var.project_owner
   }
 }

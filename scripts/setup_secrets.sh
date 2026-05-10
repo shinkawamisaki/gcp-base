@@ -81,6 +81,8 @@ set_secret "$ADMIN_PJ" "infra-github-token" "サンドボックスの自動削�
 set_secret "$ADMIN_PJ" "infra-github-app-id" "GitHub App の App ID"
 set_secret "$ADMIN_PJ" "infra-github-app-private-key" "GitHub App の Private Key (-----BEGIN RSA PRIVATE KEY----- ...)"
 set_secret "$ADMIN_PJ" "infra-github-app-installation-id" "GitHub App の Installation ID"
+set_secret "$ADMIN_PJ" "github-token-pr-reviewer" "Cloud Build が PR にコメントを書き込むための GitHub PAT"
+set_secret "$ADMIN_PJ" "infra-datadog-api-key" "Datadog API Key (オプション: AI検閲結果のメトリクス送信)"
 
 echo -e "\n${GREEN}================================================================${NC}"
 echo -e "${GREEN}🎉 All secrets have been processed safely in Admin project!${NC}"

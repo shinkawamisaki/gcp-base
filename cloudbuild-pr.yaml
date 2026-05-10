@@ -1,0 +1,24 @@
+steps:
+  # 1. AI検閲官コンテナの実行
+  - name: 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/infra-tools/ai-verifier:latest'
+    entrypoint: 'python'
+    args: ['scripts/pr_reviewer.py']
+    secretEnv: ['GITHUB_TOKEN', 'DATADOG_API_KEY']
+    env:
+      - 'PROJECT_ID=$PROJECT_ID'
+      - 'PR_NUMBER=$_PR_NUMBER'
+      - 'REPO_FULL_NAME=$REPO_FULL_NAME'
+      - 'COMMIT_SHA=$COMMIT_SHA'
+      # PR時に動的に取得したワークスペースをPYTHONPATH等に通すことも可能だが、
+      # コンテナの entrypoint でワークスペース内のスクリプトを直接実行する。
+    dir: '.' # ソースコードがマウントされたディレクトリ
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/github-token-pr-reviewer/versions/latest
+      env: 'GITHUB_TOKEN'
+    - versionName: projects/$PROJECT_ID/secrets/infra-datadog-api-key/versions/latest
+      env: 'DATADOG_API_KEY'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

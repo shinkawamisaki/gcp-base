@@ -14,8 +14,8 @@
     - Gemini 2.5-flash が「今すぐ対応すべき Top 5」を抽出してSlack 通知でおしらせします。
 5.  **開発者向け自動セットアップ**
     - プロジェクト完成時、開発者はサンプルキットをDLするだけでWIFによるapply/deployが可能に。
-6.  **AI 駆動型クロス検証 (Pre-commit Hook)**
-    - Gemini 2.5-flash がコミット前に設計思想 (`.clinerules`) との整合性を自動レビュー。承認された変更の逆引き仕様書（変更証跡）を自動生成してGCSバケットに直送・保存し、検証結果を Datadog へメトリクスとして送信します（OSS向けに環境がない場合のスキップ機能あり）。
+6.  **AI 駆動型クロス検証 (Cloud Build CI)**
+    - Gemini 2.5-flash が Pull Request 作成時に設計思想 (`.clinerules`) との整合性を自動レビュー。承認された変更の逆引き仕様書（変更証跡）を自動生成してGCSバケットに直送・保存し、検証結果を GitHub PR コメントとしてフィードバック（Suggested Changes 含む）します。
 
 
 ## 前提条件 (Prerequisites)
@@ -66,7 +66,7 @@ gcp-base/
    ./scripts/setup_secrets.sh
    ```
    ※ `setup_secrets.sh` を実行すると、Slack Webhook URL や Gemini API キーの入力を求められます。
-4. **Git フックの有効化（必須）**: AIクロス検証（Pre-commit Hook）をローカルで有効にするため、以下のコマンドを実行します。
+4. **Git フックの有効化（任意）**: ローカルでのフォーマットチェック等を有効にするため、以下のコマンドを実行します。
    ```bash
    git config core.hooksPath .githooks
    ```
@@ -176,6 +176,14 @@ WIF（GitHub連携）、予算通知、監視ボットなどを構築します�
 terraform import google_org_policy_policy.legacy_allowed_domains organizations/YOUR_ORG_ID/policies/iam.allowedPolicyMemberDomains
 ```
 ## Changelog
+ [1.4.1] - 2026-05-10
+- [BugFix] AI検閲官のフィードバックコメントが英語で出力される問題を修正し、完全な日本語出力を強制。
+- [BugFix] Cloud BuildでのCI実行時に発生するGitHub APIの認証エラー（403 Forbidden）および環境変数の参照エラーを修正。
+
+ [1.4.0] - 2026-05-10
+- [Feature] AI検閲官の実行環境をローカルの pre-commit から Cloud Build (CI) へ移行し、Pull Request に対する自動レビュー機能へ進化（DX最適化）。
+- [Feature] GitHubの Suggested Changes を用いた修正案の自動提案機能を実装。
+
  [1.3.1] - 2026-05-06
 - [BugFix] Datadog送信スクリプトにてCodeQL（SAST）警告となるシークレット名の平文ログ出力を修正。
 - [Update] プロジェクト憲法（`.clinerules`）に静的解析(SAST)対応および機密情報の平文ログ出力禁止ルールを追記。

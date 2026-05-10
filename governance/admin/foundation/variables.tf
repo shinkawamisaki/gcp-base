@@ -101,7 +101,7 @@ variable "allowed_gh_repositories" {
 variable "source_dir" {
   description = "通知ロボットのソースコードが入っているディレクトリ名"
   type        = string
-  default = "./billing_notifier"
+  default     = "./billing_notifier"
 }
 
 # セキュリティレベルの設定 (standard or high)

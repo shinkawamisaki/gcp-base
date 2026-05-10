@@ -23,9 +23,9 @@ resource "google_service_account_iam_member" "wif_runner_binding" {
   for_each           = toset(var.allowed_gh_repositories)
   service_account_id = data.google_service_account.terraform_runner.name
   role               = "roles/iam.workloadIdentityUser"
-  
+
   # 指定されたリポジトリからのアクセスを許可
-  member             = "principalSet://iam.googleapis.com/${data.google_iam_workload_identity_pool.gh_pool.name}/attribute.repository/${var.gh_org_name}/${each.value}"
+  member = "principalSet://iam.googleapis.com/${data.google_iam_workload_identity_pool.gh_pool.name}/attribute.repository/${var.gh_org_name}/${each.value}"
 }
 
 # 出力

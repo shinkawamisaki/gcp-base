@@ -9,14 +9,14 @@ data "google_storage_bucket_object_content" "bootstrap_metadata" {
 }
 
 locals {
-  meta = jsondecode(data.google_storage_bucket_object_content.bootstrap_metadata.content)
+  meta                     = jsondecode(data.google_storage_bucket_object_content.bootstrap_metadata.content)
   infrastructure_folder_id = local.meta.infrastructure_folder_id
   workloads_folder_id      = local.meta.workloads_folder_id
   sandbox_folder_id        = local.meta.sandbox_folder_id
 
   # フォルダ名（folders/数字）から数字のみを抽出
-  workloads_folder_name    = element(split("/", local.workloads_folder_id), length(split("/", local.workloads_folder_id)) - 1)
-  sandbox_folder_name      = element(split("/", local.sandbox_folder_id), length(split("/", local.sandbox_folder_id)) - 1)
+  workloads_folder_name = element(split("/", local.workloads_folder_id), length(split("/", local.workloads_folder_id)) - 1)
+  sandbox_folder_name   = element(split("/", local.sandbox_folder_id), length(split("/", local.sandbox_folder_id)) - 1)
 }
 
 # 管理プロジェクトの情報を取得
@@ -54,8 +54,8 @@ module "billing_base" {
   currency           = var.currency
   app_base_name      = var.app_base_name
   slack_secret_name  = var.billing_slack_secret_name
-  
-  depends_on         = [module.api_base]
+
+  depends_on = [module.api_base]
 }
 
 # 1-2. 外勤死活監視・ログアラート
@@ -67,8 +67,8 @@ module "monitoring_base" {
   monitoring_targets = var.monitoring_targets
   slack_secret_name  = var.monitoring_slack_secret_name
   slack_channel_name = replace(var.monitoring_slack_channel, "#", "")
-  
-  depends_on         = [module.api_base]
+
+  depends_on = [module.api_base]
 }
 
 # 1-3. セキュリティ基盤（SCC & 組織ログ）
@@ -81,8 +81,8 @@ module "security_base" {
   use_org_level      = var.use_org_level
   env                = var.env
   region             = var.region
-  
-  depends_on         = [module.api_base]
+
+  depends_on = [module.api_base]
 }
 
 # ===============================================================
@@ -90,7 +90,7 @@ module "security_base" {
 # ===============================================================
 
 data "google_secret_manager_secret" "required_secrets" {
-  for_each  = toset([
+  for_each = toset([
     var.slack_secret_name,
     var.infra_slack_secret_name,
     var.billing_slack_secret_name,
@@ -190,9 +190,9 @@ resource "google_organization_policy" "restrict_locations" {
 # 6. 逆引き仕様書 (Changelogs) 保管バケット
 # ===============================================================
 resource "google_storage_bucket" "changelogs" {
-  name          = "${var.project_id}-changelog-store"
-  project       = data.google_project.admin.project_id
-  location      = var.region
+  name     = "${var.project_id}-changelog-store"
+  project  = data.google_project.admin.project_id
+  location = var.region
 
   force_destroy               = false
   public_access_prevention    = "enforced"
