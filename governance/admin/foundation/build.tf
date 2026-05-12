@@ -7,6 +7,8 @@ resource "google_artifact_registry_repository" "infra_tools" {
   description   = "Docker repository for infrastructure and CI/CD tools"
   format        = "DOCKER"
   project       = var.project_id
+
+  # checkov:skip=CKV_GCP_84: "Use standard GMEK for Artifact Registry to reduce costs"
 }
 
 # ===============================================================

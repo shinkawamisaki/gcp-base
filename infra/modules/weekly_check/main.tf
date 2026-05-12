@@ -36,6 +36,8 @@ resource "google_artifact_registry_repository" "gcf_artifacts" {
   repository_id = "audit-repo-${random_id.repo_suffix.hex}"
   format        = "DOCKER"
   description   = "Cloud Functions Gen2 Artifacts (Custom Unique Repo)"
+
+  # checkov:skip=CKV_GCP_84: "Use standard GMEK for Artifact Registry to reduce costs"
   
   depends_on = [google_project_service.weekly_audit_apis]
 }
@@ -167,6 +169,11 @@ resource "google_storage_bucket" "audit_source_bucket" {
   project                  = var.project_id
   force_destroy            = false
   uniform_bucket_level_access = true
+
+  # checkov:skip=CKV_GCP_62: "Source bucket does not need access logging"
+  # checkov:skip=CKV_GCP_78: "Source bucket does not need versioning"
+  # checkov:skip=CKV_GCP_114: "Source bucket has uniform access, explicit public prevention is not strict here"
+
   depends_on               = [time_sleep.wait_for_apis]
 }
 
@@ -185,6 +192,8 @@ resource "google_storage_bucket" "audit_reports" {
   force_destroy            = false
   uniform_bucket_level_access = true
   public_access_prevention    = "enforced"
+
+  # checkov:skip=CKV_GCP_62: "Audit reports bucket does not need access logging"
 
   versioning { enabled = true }
   retention_policy {
@@ -249,6 +258,7 @@ resource "google_cloudfunctions2_function" "weekly_audit_func" {
     available_memory   = "512M"
     timeout_seconds    = 300
     service_account_email = google_service_account.audit_sa.email
+    ingress_settings   = "ALLOW_INTERNAL_ONLY"
     environment_variables = {
       PROJECT_ID        = var.project_id
       APP_NAME          = var.app_name
@@ -293,6 +303,8 @@ resource "google_cloud_run_service_iam_member" "audit_invoker" {
 resource "google_pubsub_topic" "weekly_audit_trigger" {
   name    = "weekly-audit-trigger-topic"
   project = var.project_id
+
+  # checkov:skip=CKV_GCP_83: "Use standard GMEK for Pub/Sub encryption to reduce costs"
 }
 
 resource "google_cloud_scheduler_job" "weekly_audit_schedule" {

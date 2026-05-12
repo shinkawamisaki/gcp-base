@@ -14,6 +14,9 @@ resource "google_project" "apps" {
   project_id      = "${each.key}-${var.app_base_name}-${random_id.suffix.hex}"
   folder_id       = var.folder_id
   billing_account = var.billing_account_id
+  auto_create_network = false
+
+  # checkov:skip=CKV_GCP_27: "auto_create_network is false"
   
   labels = merge(var.common_labels, {
     env         = each.key
@@ -123,6 +126,9 @@ resource "google_project_iam_member" "manager_sa_privilege" {
   # 【設計思想】検証環境(stg/audit)は開発効率のため Editor、本番(prd)は事故防止のため Viewer を付与
   role     = (each.key == "prd") ? "roles/viewer" : "roles/editor"
   member   = "serviceAccount:${google_service_account.manager_sas[each.key].email}"
+
+  # checkov:skip=CKV_GCP_118: "roles/editor is allowed for Manager SA"
+  # checkov:skip=CKV_GCP_41: "roles/editor is allowed for Manager SA"
 }
 
 # 5-4. WIF 連携の設定 (リポジトリ完全一致による最小権限)

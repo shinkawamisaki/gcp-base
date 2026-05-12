@@ -21,6 +21,10 @@ resource "google_project_iam_member" "runner_admin_privileges" {
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${data.google_service_account.terraform_runner.email}"
+
+  # checkov:skip=CKV_GCP_118: "roles/editor is allowed for Terraform Runner SA"
+  # checkov:skip=CKV_GCP_41: "SA management roles are allowed for Terraform Runner SA"
+  # checkov:skip=CKV_GCP_49: "SA management roles are allowed for Terraform Runner SA"
 }
 
 # ---------------------------------------------------------------

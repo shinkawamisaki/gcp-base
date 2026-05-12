@@ -198,6 +198,8 @@ resource "google_storage_bucket" "changelogs" {
   public_access_prevention    = "enforced"
   uniform_bucket_level_access = true
 
+  # checkov:skip=CKV_GCP_62: "Changelogs bucket does not need access logging"
+
   versioning {
     enabled = true
   }

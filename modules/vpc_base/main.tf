@@ -10,10 +10,17 @@ resource "google_compute_network" "vpc" {
 
 # 2. Subnet (サブネット)
 resource "google_compute_subnetwork" "subnet" {
-  name          = "${var.app_name}-${var.environment}-subnet"
-  ip_cidr_range = var.subnet_cidr
-  region        = var.region
-  network       = google_compute_network.vpc.id
+  name                     = "${var.app_name}-${var.environment}-subnet"
+  ip_cidr_range            = var.subnet_cidr
+  region                   = var.region
+  network                  = google_compute_network.vpc.id
+  private_ip_google_access = true
+
+  log_config {
+    aggregation_interval = "INTERVAL_5_SEC"
+    flow_sampling        = 0.5
+    metadata             = "INCLUDE_ALL_METADATA"
+  }
 }
 
 # 3. Cloud NAT (【コスト節約】オプションで作成)
@@ -36,14 +43,14 @@ resource "google_compute_router_nat" "nat" {
 
 # 4. Firewall Rules (セキュリティの核心)
 
-# Web 用: 外部からの HTTP/HTTPS のみを許可
+# Web 用: 外部からの HTTPS のみを許可
 resource "google_compute_firewall" "allow_web" {
   name    = "${var.app_name}-${var.environment}-allow-web"
   network = google_compute_network.vpc.name
 
   allow {
     protocol = "tcp"
-    ports    = ["80", "443"]
+    ports    = ["443"]
   }
 
   # 【セキュリティ設計】

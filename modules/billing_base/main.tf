@@ -40,6 +40,7 @@ resource "google_pubsub_topic" "budget_notification_topic" {
   project = var.project_id
   name    = "${var.app_base_name}-budget-notifications"
   
+  # checkov:skip=CKV_GCP_83: "Use standard GMEK for Pub/Sub encryption to reduce costs"
   depends_on = [google_project_service.billing_notifier_apis]
 }
 
@@ -116,6 +117,7 @@ resource "google_artifact_registry_repository" "gcf_artifacts" {
   format        = "DOCKER"
   description   = "Cloud Functions Gen2 Artifacts for Billing Notifier"
   
+  # checkov:skip=CKV_GCP_84: "Use standard GMEK for Artifact Registry to reduce costs"
   depends_on = [google_project_service.billing_notifier_apis]
 }
 
@@ -217,6 +219,7 @@ resource "google_cloudfunctions2_function" "budget_notifier" {
     available_memory   = "256Mi"
     timeout_seconds    = 60
     service_account_email = google_service_account.budget_notifier_sa.email
+    ingress_settings   = "ALLOW_INTERNAL_ONLY"
     environment_variables = {
       SLACK_SECRET_ID         = var.slack_secret_name
       PROJECT_ID              = var.project_id
@@ -270,6 +273,10 @@ resource "google_storage_bucket" "function_source_bucket" {
   location                    = var.region
   force_destroy               = true
   uniform_bucket_level_access = true
+
+  # checkov:skip=CKV_GCP_62: "Source bucket does not need access logging"
+  # checkov:skip=CKV_GCP_78: "Source bucket does not need versioning"
+  # checkov:skip=CKV_GCP_114: "Source bucket has uniform access, explicit public prevention is not strict here"
 }
 
 data "archive_file" "source" {

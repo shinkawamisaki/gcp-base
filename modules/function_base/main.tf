@@ -21,6 +21,20 @@ resource "google_project_service" "apis" {
   disable_on_destroy = false
 }
 
+resource "google_storage_bucket" "app_source_logs" {
+  project  = var.project_id
+  name     = "app-source-logs-${var.project_id}"
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  public_access_prevention    = "enforced"
+
+  versioning {
+    enabled = true
+  }
+}
+
 resource "google_storage_bucket" "app_source" {
   project  = var.project_id
   name     = "app-source-${var.project_id}"
@@ -28,6 +42,15 @@ resource "google_storage_bucket" "app_source" {
   
   uniform_bucket_level_access = true
   force_destroy               = false
+  public_access_prevention    = "enforced"
+
+  versioning {
+    enabled = true
+  }
+
+  logging {
+    log_bucket = google_storage_bucket.app_source_logs.name
+  }
 
   labels = {
     env     = var.env
@@ -81,6 +104,8 @@ resource "google_cloudfunctions_function" "app_function" {
   trigger_http          = true
   
   service_account_email = google_service_account.app_sa.email
+
+  ingress_settings = "ALLOW_INTERNAL_ONLY"
 
   environment_variables = {
     PROJECT_ID = var.project_id

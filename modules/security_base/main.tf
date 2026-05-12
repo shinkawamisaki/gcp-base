@@ -6,6 +6,8 @@
 resource "google_pubsub_topic" "scc_notifications" {
   name       = "${var.env}-scc-notifications-topic"
   project    = var.project_id
+
+  # checkov:skip=CKV_GCP_83: "Use standard GMEK for Pub/Sub encryption to reduce costs"
 }
 
 # 組織レベルの通知設定 (V2 最新形式)
@@ -56,6 +58,8 @@ resource "google_storage_bucket" "audit_logs_archive" {
   versioning {
     enabled = true
   }
+
+  # checkov:skip=CKV_GCP_62: "Audit logs bucket does not need access logging to prevent log loops"
 
   labels = merge(local.common_labels, {
     service = "security-audit"

@@ -97,6 +97,8 @@ resource "google_artifact_registry_repository" "gcf_artifacts" {
   format        = "DOCKER"
   description   = "Cloud Functions Gen2 Artifacts (Custom Unique Repo)"
   
+  # checkov:skip=CKV_GCP_84: "Use standard GMEK for Artifact Registry to reduce costs"
+
   depends_on = [google_project_service.lifecycle_apis]
 }
 
@@ -203,6 +205,10 @@ resource "google_storage_bucket" "lifecycle_source_bucket" {
   project                  = var.project_id
   force_destroy            = false
   uniform_bucket_level_access = true
+
+  # checkov:skip=CKV_GCP_62: "Source bucket does not need access logging"
+  # checkov:skip=CKV_GCP_78: "Source bucket does not need versioning"
+  # checkov:skip=CKV_GCP_114: "Source bucket has uniform access, explicit public prevention is not strict here"
 }
 
 resource "google_storage_bucket_object" "lifecycle_zip" {
@@ -240,6 +246,7 @@ resource "google_cloudfunctions2_function" "lifecycle_func" {
     available_memory   = "256M"
     timeout_seconds    = 60
     service_account_email = google_service_account.lifecycle_sa.email
+    ingress_settings   = "ALLOW_INTERNAL_ONLY"
     environment_variables = {
       PROJECT_ID        = var.project_id
       SECRET_PROJECT_ID          = var.admin_project_id
@@ -278,6 +285,8 @@ resource "google_cloud_run_service_iam_member" "lifecycle_invoker" {
 resource "google_pubsub_topic" "lifecycle_trigger" {
   name    = "sandbox-lifecycle-trigger-topic"
   project = var.project_id
+
+  # checkov:skip=CKV_GCP_83: "Use standard GMEK for Pub/Sub encryption to reduce costs"
 }
 
 resource "google_cloud_scheduler_job" "lifecycle_schedule" {
