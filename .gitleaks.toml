@@ -1,0 +1,30 @@
+# gitleaks 設定
+# 誤検知（false positive）をここで除外する。
+# 除外追加時は必ず理由をコメントで記載すること（IPO監査対応）。
+
+title = "gitleaks config"
+
+[extend]
+# gitleaks 公式のデフォルトルールセットを継承
+useDefault = true
+
+[allowlist]
+description = "プロジェクト全体の誤検知除外設定"
+paths = [
+  # プロジェクト全体の除外パス
+  '''.git''',
+  '''.*\.lock''',
+  '''.*tfstate.*''',   # stateファイルはGCSにあるがローカルに残った場合の安全弁
+
+  # ドキュメント・READMEのサンプル値は除外
+  '''README\.md''',
+  '''docs/.*\.md''',
+  '''.*\.example''',
+  '''.*\.sample''',
+]
+regexes = [
+  # Terraform変数のデフォルト値（プレースホルダー）は除外
+  '''your-.*''',
+  '''<.*>''',
+  '''\$\{.*\}''',   # Terraform/Shell の変数展開
+]

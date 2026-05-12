@@ -9,6 +9,8 @@ steps:
       - 'PR_NUMBER=$_PR_NUMBER'
       - 'REPO_FULL_NAME=$REPO_FULL_NAME'
       - 'COMMIT_SHA=$COMMIT_SHA'
+      # Datadogを無効化する場合は DATADOG_ENABLED=false に変更する（デフォルト: true）
+      - 'DATADOG_ENABLED=true'
       # PR時に動的に取得したワークスペースをPYTHONPATH等に通すことも可能だが、
       # コンテナの entrypoint でワークスペース内のスクリプトを直接実行する。
     dir: '.' # ソースコードがマウントされたディレクトリ

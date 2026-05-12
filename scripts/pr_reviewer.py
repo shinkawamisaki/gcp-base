@@ -25,6 +25,7 @@ PR_NUMBER = os.environ.get("PR_NUMBER")
 COMMIT_SHA = os.environ.get("COMMIT_SHA")
 STRICT_AI_VERIFY = os.environ.get("STRICT_AI_VERIFY", "false").lower() == "true"
 LOCATION = os.environ.get("VERTEX_LOCATION", "asia-northeast1")
+DATADOG_ENABLED = os.environ.get("DATADOG_ENABLED", "false").lower() == "true"
 
 if not all([PROJECT_ID, GITHUB_TOKEN, REPO_FULL_NAME, PR_NUMBER, COMMIT_SHA]):
     print("[ERROR] 必要な環境変数が設定されていません。")
@@ -85,6 +86,52 @@ def post_or_update_comment(body_text):
         requests.post(url, headers=GH_HEADERS_JSON, json={"body": body_text})
 
 # ==============================================================================
+# Datadog メトリクス送信
+# DATADOG_ENABLED=false の場合は何もしない（切り替えはこの環境変数だけ）
+# ==============================================================================
+def send_datadog_metrics(result, is_draft, pr_author, category=None):
+    if not DATADOG_ENABLED:
+        return
+    dd_api_key = os.environ.get("DATADOG_API_KEY", "").strip()
+    if not dd_api_key:
+        print("[WARN] DATADOG_ENABLED=true だが DATADOG_API_KEY が未設定です。")
+        return
+
+    import urllib.request
+    import time
+
+    tags = [
+        f"result:{result}",
+        f"repo:{REPO_FULL_NAME}",
+        f"pr_number:{PR_NUMBER}",
+        f"is_draft:{str(is_draft).lower()}",
+        f"author:{pr_author}",
+    ]
+    if category:
+        tags.append(f"category:{category}")
+
+    payload = {
+        "series": [{
+            "metric": "gcp.ai_verifier.review",
+            "type": 1,  # count
+            "points": [{"timestamp": int(time.time()), "value": 1}],
+            "tags": tags,
+        }]
+    }
+    url = os.environ.get("DATADOG_API_URL", "https://api.datadoghq.com/api/v2/series")
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"DD-API-KEY": dd_api_key, "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            print(f"[INFO] Datadog 送信完了 (status={resp.status}, tags={tags})")
+    except Exception:
+        print("[WARN] Datadog への送信に失敗しました。(詳細は非表示)")
+
+# ==============================================================================
 # セキュリティ・マスク処理
 # ==============================================================================
 def redact_sensitive_info(text):
@@ -127,30 +174,50 @@ def main():
     else:
         print("[WARN] .clinerules が見つかりません。")
 
+    # 判例集の読み込み（重複なし・最新判断のみ。証跡は judgments.md を参照）
+    active_rules_path = "logs/active_rules.md"
+    active_rules_content = ""
+    if os.path.exists(active_rules_path):
+        with open(active_rules_path, "r", encoding="utf-8") as f:
+            active_rules_content = f.read()
+        print("[INFO] 判例集 (active_rules.md) を読み込みました。")
+    else:
+        print("[WARN] logs/active_rules.md が見つかりません。判例なしで審査します。")
+
     # マスク処理
     rules_content_masked = redact_sensitive_info(rules_content)
+    active_rules_masked = redact_sensitive_info(active_rules_content)
     diff_content_masked = redact_sensitive_info(diff_content)
-    
+
     # プロンプトの構築
     base_prompt = """あなたは厳格なIPO準備・高セキュリティ仕様のGCP基盤の外部コードレビュアーです。
-以下の「プロジェクト憲法（設計思想・ルール）」を基準に、現在ステージングされている変更（git diff）を厳密にレビューしてください。
+以下の「プロジェクト憲法（設計思想・ルール）」と「判例集（過去の人間判断）」を基準に、現在ステージングされている変更（git diff）を厳密にレビューしてください。
 
 【プロジェクト憲法】
 {rules}
+
+【判例集（過去に人間が下した判断 - 憲法より優先して適用せよ）】
+{active_rules}
 
 【変更内容 (git diff)】
 {diff}
 
 【指示】
-1. プロジェクト憲法の思想（職務分掌、最小権限、物理隔離、ハードコーディング排除など）と矛盾がないか厳格にチェックしてください。
-2. ルール違反やセキュリティリスクがある場合、またはルールの思想から逸脱している場合は不合格としてください。
-3. コードの修正が必要な場合は、開発者がすぐに取り込めるようにGitHubのSuggested Changes形式（```suggestion ... ```）を用いて具体的な修正コードを提案してください。
-4. 回答およびコメントの文章は【必ずすべて日本語】で記述してください（コードスニペットを除く）。
-5. 出力形式：
+1. 判例集に該当するケースがあれば、憲法より判例を優先して判断せよ。
+2. プロジェクト憲法の思想（職務分掌、最小権限、物理隔離、ハードコーディング排除など）と矛盾がないか厳格にチェックしてください。
+3. ルール違反やセキュリティリスクがある場合、またはルールの思想から逸脱している場合は不合格としてください。
+4. コードの修正が必要な場合は、開発者がすぐに取り込めるようにGitHubのSuggested Changes形式（```suggestion ... ```）を用いて具体的な修正コードを提案してください。
+5. 回答およびコメントの文章は【必ずすべて日本語】で記述してください（コードスニペットを除く）。
+6. 出力形式：
    - 合格の場合: 最初の行に「RESULT: PASS」と書き、次の行に「OK」とだけ出力してください。
-   - 不合格の場合: 最初の行に「RESULT: FAIL」と書き、次の行から具体的な指摘理由と修正案を日本語で出力してください。
+   - 不合格の場合: 最初の行に「RESULT: FAIL」、2行目に「CATEGORY: <カテゴリ>」と書き、3行目から具体的な指摘理由と修正案を日本語で出力してください。
+     カテゴリは以下から最も近いものを1つ選んでください: IAM / SECRET / NETWORK / HARDCODING / POLICY / OTHER
 """
-    prompt = base_prompt.format(rules=rules_content_masked, diff=diff_content_masked)
+    prompt = base_prompt.format(
+        rules=rules_content_masked,
+        active_rules=active_rules_masked or "（判例なし）",
+        diff=diff_content_masked,
+    )
 
     # Gemini APIの呼び出し
     vertexai.init(project=PROJECT_ID, location=LOCATION)
@@ -166,11 +233,21 @@ def main():
         sys.exit(2 if STRICT_AI_VERIFY else 0)
 
     # 結果の判定とフィードバック
+    pr_author = pr_info.get("user", {}).get("login", "unknown")
+
     if "RESULT: FAIL" in result_text:
         print("[INFO] 検閲結果: 違反を検知しました。")
-        comment_body = f"### 🤖 AI検閲官からのアドバイス\n\n🚨 **プロジェクト憲法への違反またはリスクを検知しました。**\n\n{result_text.replace('RESULT: FAIL', '').strip()}"
+
+        # CATEGORY 行をパース（Datadog タグ用）
+        category_match = re.search(r"CATEGORY:\s*(\w+)", result_text)
+        violation_category = category_match.group(1).lower() if category_match else "other"
+
+        clean_body = re.sub(r"RESULT:\s*FAIL\n?", "", result_text)
+        clean_body = re.sub(r"CATEGORY:\s*\w+\n?", "", clean_body).strip()
+        comment_body = f"### 🤖 AI検閲官からのアドバイス\n\n🚨 **プロジェクト憲法への違反またはリスクを検知しました。**\n\n{clean_body}"
         post_or_update_comment(comment_body)
-        
+        send_datadog_metrics("fail", is_draft, pr_author, category=violation_category)
+
         # Draft PRの聖域化
         if is_draft:
             print("[INFO] Draft PRのため、Status Check は Success で通過させます。")
@@ -184,7 +261,8 @@ def main():
         comment_body = "### 🤖 AI検閲官\n\n✅ **AI検閲を通過しました。** 憲法に準拠した素晴らしいコードです！"
         post_or_update_comment(comment_body)
         set_commit_status("success", "AI verification passed")
-        
+        send_datadog_metrics("pass", is_draft, pr_author)
+
         # 逆引き仕様書生成
         generate_changelog(model, diff_content_masked)
         sys.exit(0)
@@ -220,25 +298,6 @@ def generate_changelog(model, diff_content):
         blob.upload_from_string(doc_text, content_type="text/markdown")
         
         print(f"[INFO] 逆引き仕様書を GCS にアップロードしました: gs://{bucket_name}/change-logs/{filename}")
-        
-        # オプション: Datadogへのメトリクス送信（APIキーが設定されている場合）
-        dd_api_key = os.environ.get("DATADOG_API_KEY")
-        if dd_api_key and dd_api_key.strip():
-            print("[INFO] Datadogへメトリクスを送信します...")
-            try:
-                from datadog import initialize, api
-                initialize(api_key=dd_api_key)
-                
-                # 監査通過のメトリクス
-                api.Metric.send(
-                    metric="gcp.ai_verifier.pass_count",
-                    points=1,
-                    type="count",
-                    tags=[f"repo:{REPO_FULL_NAME}", f"pr:{PR_NUMBER}"]
-                )
-                print("[INFO] Datadogへの送信が完了しました。")
-            except Exception as dd_e:
-                print(f"[WARN] Datadogへの送信に失敗しました: {dd_e}")
                 
     except Exception as e:
         print(f"[WARN] 逆引き仕様書の生成またはアップロードに失敗しました: {e}")

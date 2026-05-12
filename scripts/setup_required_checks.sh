@@ -14,7 +14,9 @@ Options:
   --repo <owner/repo>           Target a single repository (can be repeated)
   --inventory <path>            Read repositories from inventory.json apps[].github_repo
   --branch <name>               Protect this branch (default: repo default branch)
-  --with-sandbox-critical       Also require "Checkov Sandbox Critical Guardrail"
+  --with-sandbox-critical       Also require "Checkov Sandbox Critical Guardrail" (sandbox用, prd env設定をスキップ)
+  --prd-reviewer-team <slug>    prd Environmentの承認者チームスラッグ (例: platform-admins)
+  --no-prd-env                  prd GitHub Environment保護設定をスキップ
   --dry-run                     Print targets and payload, do not apply
   -h, --help                    Show this help
 
@@ -144,6 +146,63 @@ build_payload() {
   fi
 }
 
+# PRD GitHub Environment に保護設定を適用する
+# - protected_branches: true  → mainブランチからのみデプロイ可
+# - prevent_self_review: true → 自己承認禁止
+# - reviewers (team): --prd-reviewer-team で指定したチームを承認者に追加
+apply_environment_protection() {
+  local repo="$1"
+  local env_name="$2"
+  local reviewer_team_slug="${3:-}"
+  local dry_run="$4"
+
+  local reviewers_json="[]"
+  if [ -n "$reviewer_team_slug" ]; then
+    local org
+    org="$(echo "$repo" | cut -d'/' -f1)"
+    local team_id
+    team_id="$(gh api "/orgs/$org/teams/$reviewer_team_slug" --jq '.id' 2>/dev/null || true)"
+    if [ -n "$team_id" ]; then
+      reviewers_json="[{\"type\":\"Team\",\"id\":$team_id}]"
+    else
+      echo "[WARN] Team '$reviewer_team_slug' not found in org '$org'. Skipping reviewer."
+    fi
+  fi
+
+  local payload
+  payload="$(jq -n \
+    --argjson reviewers "$reviewers_json" \
+    '{
+      wait_timer: 0,
+      prevent_self_review: true,
+      reviewers: $reviewers,
+      deployment_branch_policy: {
+        protected_branches: true,
+        custom_branch_policies: false
+      }
+    }')"
+
+  echo "[INFO] Applying prd environment protection: $repo (env: $env_name)"
+
+  if [ "$dry_run" = "true" ]; then
+    echo "[DRY-RUN] Environment payload:"
+    echo "$payload" | jq .
+    return 0
+  fi
+
+  if gh api \
+    --method PUT \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "/repos/$repo/environments/$env_name" \
+    --input - <<<"$payload" >/dev/null; then
+    echo "[OK] prd environment protection set for $repo"
+  else
+    echo "[WARN] Failed to set prd environment protection for $repo"
+    return 1
+  fi
+}
+
 apply_branch_protection() {
   local repo="$1"
   local branch="$2"
@@ -199,6 +258,8 @@ main() {
   local forced_branch=""
   local dry_run="false"
   local with_sandbox_critical="false"
+  local setup_prd_env="true"          # サンドボックス以外はデフォルトで prd env 保護を設定
+  local prd_reviewer_team=""
   local strict_sync="${STRICT_REQUIRED_CHECKS_SYNC:-false}"
   local failed_count=0
   local -a repos=()
@@ -219,7 +280,16 @@ main() {
         ;;
       --with-sandbox-critical)
         with_sandbox_critical="true"
+        setup_prd_env="false"         # サンドボックスに prd env 保護は不要
         shift
+        ;;
+      --no-prd-env)
+        setup_prd_env="false"
+        shift
+        ;;
+      --prd-reviewer-team)
+        prd_reviewer_team="$2"
+        shift 2
         ;;
       --dry-run)
         dry_run="true"
@@ -294,6 +364,13 @@ main() {
     payload="$(build_payload "$checks" "$current_protection")"
     if ! apply_branch_protection "$repo" "$branch" "$payload" "$dry_run"; then
       failed_count=$((failed_count + 1))
+    fi
+
+    # prd GitHub Environment の保護設定（サンドボックスは除外）
+    if [ "$setup_prd_env" = "true" ]; then
+      if ! apply_environment_protection "$repo" "prd" "$prd_reviewer_team" "$dry_run"; then
+        failed_count=$((failed_count + 1))
+      fi
     fi
   done
   if [ "$failed_count" -gt 0 ]; then

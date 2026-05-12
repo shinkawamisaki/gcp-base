@@ -1,0 +1,69 @@
+name: 'Terraform Plan (PR Preview)'
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/terraform-plan.yml'
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  plan-stg:
+    name: 'Plan: infra (stg)'
+    # ID_STG が未設定 or プレースホルダーの場合はスキップ
+    if: vars.ID_STG != '' && !contains(vars.ID_STG, 'sample-app')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate (stg-manager-sa)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: "projects/${{ vars.ADMIN_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider"
+          service_account: "stg-manager-sa@${{ vars.ID_STG }}.iam.gserviceaccount.com"
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Plan (stg)
+        id: plan
+        run: |
+          cat <<EOF > backend.hcl
+          bucket = "${{ vars.ADMIN_PROJECT_ID }}-tfstate"
+          prefix = "terraform/state/${{ vars.APP_NAME }}/stg"
+          EOF
+          terraform init -backend-config=backend.hcl
+          terraform plan -no-color -input=false \
+            -var="project_id=${{ vars.ID_STG }}" \
+            -var="env=stg" \
+            2>&1 | tee plan_output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Post Plan Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('infra/plan_output.txt', 'utf8').slice(-60000);
+            const body = `### 📋 Terraform Plan: \`infra\` (stg)\n\`\`\`\n${output}\n\`\`\``;
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number
+            });
+            const existing = comments.data.find(c => c.body.includes('Terraform Plan: `infra` (stg)'));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+            }
+
+      - name: Fail if Plan Failed
+        if: steps.plan.outputs.exitcode != '0'
+        run: exit 1

@@ -114,3 +114,7 @@ confidential/
 secret.txt
 credentials.json
 # --- End of .gitignore ---
+*.zip
+
+# --- Changelogs (uploaded to GCS) ---
+docs/change-logs/

@@ -35,6 +35,7 @@ jobs:
           soft_fail: true
           output_format: cli,sarif
           output_file_path: console,results-sandbox-advisory.sarif
+          config_file: .checkov.yaml
 
       - name: Upload SARIF (advisory)
         if: always()
@@ -60,6 +61,7 @@ jobs:
           hard_fail_on: HIGH,CRITICAL
           output_format: cli,sarif
           output_file_path: console,results-sandbox-critical.sarif
+          config_file: .checkov.yaml
 
       - name: Upload SARIF (critical)
         if: always()

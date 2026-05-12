@@ -1,0 +1,218 @@
+name: 'Terraform Plan (PR Preview)'
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'governance/**'
+      - 'modules/**'
+      - 'infra/**'
+      - '.github/workflows/terraform-plan.yml'
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write  # planコメントの投稿に必要
+
+jobs:
+  # 変更検知（planを走らせるディレクトリを絞る）
+  check-changes:
+    name: 'Detect Changed Directories'
+    runs-on: ubuntu-latest
+    outputs:
+      org_policies: ${{ steps.filter.outputs.org_policies }}
+      foundation:   ${{ steps.filter.outputs.foundation }}
+      factory:      ${{ steps.filter.outputs.factory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            org_policies:
+              - 'governance/org-policies/**'
+            foundation:
+              - 'governance/admin/foundation/**'
+              - 'modules/api_base/**'
+              - 'modules/billing_base/**'
+              - 'modules/monitoring_base/**'
+              - 'modules/security_base/**'
+            factory:
+              - 'governance/admin/factory/**'
+              - 'modules/project_factory/**'
+              - 'modules/vpc_base/**'
+
+  # --- Org Policies ---
+  plan-org-policies:
+    name: 'Plan: Org Policies'
+    needs: check-changes
+    if: needs.check-changes.outputs.org_policies == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: governance/org-policies
+    env:
+      TF_VAR_org_id:             ${{ secrets.GCP_ORG_ID }}
+      TF_VAR_billing_project_id: ${{ vars.GCP_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate (Privileged SA)
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: '${{ vars.GCP_PROJECT_ID }}'
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
+          service_account: 'prd-org-policy-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform Plan
+        id: plan
+        run: |
+          cat <<EOF > backend.hcl
+          bucket = "${{ vars.GCP_PROJECT_ID }}-tfstate"
+          prefix = "terraform/org-policies/state"
+          EOF
+          terraform init -backend-config=backend.hcl
+          terraform plan -no-color -input=false 2>&1 | tee plan_output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        continue-on-error: true
+      - name: Post Plan Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('governance/org-policies/plan_output.txt', 'utf8').slice(-60000);
+            const body = `### 📋 Terraform Plan: \`governance/org-policies\`\n\`\`\`\n${output}\n\`\`\``;
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number
+            });
+            const existing = comments.data.find(c => c.body.includes('Terraform Plan: `governance/org-policies`'));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+            }
+      - name: Fail if Plan Failed
+        if: steps.plan.outputs.exitcode != '0'
+        run: exit 1
+
+  # --- Foundation ---
+  plan-foundation:
+    name: 'Plan: Foundation'
+    needs: check-changes
+    if: needs.check-changes.outputs.foundation == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: governance/admin/foundation
+    env:
+      TF_VAR_project_id:         ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_org_id:             ${{ secrets.GCP_ORG_ID }}
+      TF_VAR_billing_account_id: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
+      TF_VAR_gh_org_name:        ${{ vars.GH_ORG_NAME }}
+      TF_VAR_gh_repo_name:       ${{ github.event.repository.name }}
+      TF_VAR_app_base_name:      ${{ vars.APP_BASE_NAME }}
+      TF_VAR_region:             ${{ vars.GCP_REGION }}
+      TF_VAR_env:                "admin"
+      TF_VAR_admin_group_email:  ${{ vars.ADMIN_GROUP_EMAIL }}
+      TF_VAR_project_owner:      ${{ vars.PROJECT_OWNER }}
+      TF_VAR_allowed_gh_repositories: '["${{ github.event.repository.name }}"]'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: '${{ vars.GCP_PROJECT_ID }}'
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
+          service_account: 'prd-terraform-runner-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform Plan
+        id: plan
+        run: |
+          cat <<EOF > backend.hcl
+          bucket = "${{ vars.GCP_PROJECT_ID }}-tfstate"
+          prefix = "terraform/admin/foundation/state"
+          EOF
+          terraform init -backend-config=backend.hcl
+          terraform plan -no-color -input=false 2>&1 | tee plan_output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        continue-on-error: true
+      - name: Post Plan Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('governance/admin/foundation/plan_output.txt', 'utf8').slice(-60000);
+            const body = `### 📋 Terraform Plan: \`governance/admin/foundation\`\n\`\`\`\n${output}\n\`\`\``;
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number
+            });
+            const existing = comments.data.find(c => c.body.includes('Terraform Plan: `governance/admin/foundation`'));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+            }
+      - name: Fail if Plan Failed
+        if: steps.plan.outputs.exitcode != '0'
+        run: exit 1
+
+  # --- Factory ---
+  plan-factory:
+    name: 'Plan: Factory'
+    needs: check-changes
+    if: needs.check-changes.outputs.factory == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: governance/admin/factory
+    env:
+      TF_VAR_project_id:         ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_org_id:             ${{ secrets.GCP_ORG_ID }}
+      TF_VAR_billing_account_id: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
+      TF_VAR_gh_org_name:        ${{ vars.GH_ORG_NAME }}
+      TF_VAR_gh_repo_name:       ${{ github.event.repository.name }}
+      TF_VAR_app_base_name:      ${{ vars.APP_BASE_NAME }}
+      TF_VAR_region:             ${{ vars.GCP_REGION }}
+      TF_VAR_env:                "admin"
+      TF_VAR_admin_group_email:  ${{ vars.ADMIN_GROUP_EMAIL }}
+      TF_VAR_project_owner:      ${{ vars.PROJECT_OWNER }}
+      TF_VAR_allowed_gh_repositories: '["${{ github.event.repository.name }}"]'
+      TF_VAR_enable_budget_pubsub: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: '${{ vars.GCP_PROJECT_ID }}'
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
+          service_account: 'prd-terraform-runner-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform Plan
+        id: plan
+        run: |
+          cat <<EOF > backend.hcl
+          bucket = "${{ vars.GCP_PROJECT_ID }}-tfstate"
+          prefix = "terraform/admin/factory/state"
+          EOF
+          terraform init -backend-config=backend.hcl
+          terraform plan -no-color -input=false 2>&1 | tee plan_output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        continue-on-error: true
+      - name: Post Plan Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('governance/admin/factory/plan_output.txt', 'utf8').slice(-60000);
+            const body = `### 📋 Terraform Plan: \`governance/admin/factory\`\n\`\`\`\n${output}\n\`\`\``;
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number
+            });
+            const existing = comments.data.find(c => c.body.includes('Terraform Plan: `governance/admin/factory`'));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+            }
+      - name: Fail if Plan Failed
+        if: steps.plan.outputs.exitcode != '0'
+        run: exit 1

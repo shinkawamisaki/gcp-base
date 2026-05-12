@@ -62,19 +62,21 @@
 *   `REPO_FULL_NAME`: リポジトリ名（例: `shinkawamisaki/project-23378`）
 *   `PR_NUMBER`: プルリクエスト番号
 *   `COMMIT_SHA`: 対象コミットハッシュ
+*   `DATADOG_ENABLED`: `true` で Datadog メトリクス送信を有効化（デフォルト: `false`）
+*   `DATADOG_API_KEY`: Datadog API キー（`DATADOG_ENABLED=true` 時のみ必要）
 
 **処理フロー**:
-1.  **差分取得**: GitHub API (`/repos/{owner}/{repo}/pulls/{pull_number}/files` または `git diff`) を使用してPRの差分を取得。
-2.  **機密情報のマスク**: 正規表現によるパスワード・IPのマスク（既存ロジック踏襲）。
-3.  **AIプロンプト構築**: **PRブランチ上の最新の `.clinerules`** と差分を結合。これにより、憲法自体のアップデート時も新しいルールで検閲が可能になります。また、開発者がワンクリックで修正を取り込めるよう、**GitHubの Suggested Changes 形式（` ```suggestion `）**で具体的な修正コードを出力するようにプロンプトで指示を追加します。
-4.  **Gemini API呼び出し**: `gemini-1.5-flash` を使用。Context Cachingの利用を検討（`.clinerules` が巨大な場合）。
+1.  **差分取得**: GitHub API を使用してPRの差分を取得。
+2.  **機密情報のマスク**: 正規表現によるパスワード・IPのマスク。
+3.  **AIプロンプト構築**: `.clinerules`（憲法）と `logs/active_rules.md`（判例集）と差分を結合。判例集は upsert 運用で行数が一定に保たれる。判例は憲法より優先してプロンプトに指示する。
+4.  **Gemini API呼び出し**: `gemini-2.5-flash` を使用。
 5.  **結果解析とGitHubフィードバック**:
-    *   **ノイズ管理（重要）**: 毎回新規コメントを投稿してタイムラインを埋め尽くさないよう、**既存のボットのコメントが存在する場合はそれを Update する**ロジックを実装します。
-    *   **Draft PRの聖域化（DX向上）**: 対象のPRが「Draft」状態である場合、AIは検証とコメント（Suggestion含む）までは行いますが、たとえFAIL判定であってもStatus Checkは必ず「Success（またはNeutral）」として通過させます。これにより、開発中の「とりあえず動かして試したい」というスピード重視の作業を阻害せず、かつガバナンスも犠牲にしない開発体験を提供します。
-    *   **PASSの場合**: PRの既存コメントを「✅ AI検閲を通過しました」に更新し、Status CheckをSuccessに。
-    *   **FAILの場合（Ready for Review時）**: GitHub APIを用いて、AIの指摘事項と修正案（Suggestion）をPRコメントとして更新/投稿。Status CheckをFailureにし、マージを物理的にブロックします。
-6.  **逆引き仕様書生成**: PASSした場合、Geminiにドキュメントを生成させ、GCS (`gs://[PROJECT_ID]-changelog-store/`) へアップロード。（※設定により、Datadogへのドキュメント送信も選択可能）
-7.  **Datadogメトリクス送信（オプション）**: 検証結果、トークン使用量、実行時間を送信。さらに分析の質を上げるため、LLMObsのタグに **`result:pass` や `result:fail` などのカスタムタグ**を明示的に付与し、不合格の傾向（特定のファイルや時間帯）を分析可能にするオプションを残しています。
+    *   **ノイズ管理**: 既存のボットコメントが存在する場合は Update する（新規投稿でタイムラインを汚さない）。
+    *   **Draft PRの聖域化**: Draft状態ではFAIL判定でもStatus CheckをSuccessで通過させる（`logs/judgments.md` 判例 DX-001 参照）。
+    *   **PASSの場合**: 既存コメントを「✅ AI検閲を通過しました」に更新し Status Check を Success に。
+    *   **FAILの場合（Ready for Review時）**: 指摘事項・修正案（Suggested Changes）をPRコメントに更新/投稿。Status CheckをFailureにしてマージをブロック。AIは `CATEGORY: IAM|SECRET|NETWORK|HARDCODING|POLICY|OTHER` を出力し、Datadogタグとして使用する。
+6.  **逆引き仕様書生成**: PASSした場合、Geminiにドキュメントを生成させ GCS (`gs://[PROJECT_ID]-changelog-store/`) へアップロード。
+7.  **Datadogメトリクス送信**: `DATADOG_ENABLED=true` の場合のみ送信。メトリクス名 `gcp.ai_verifier.review`、タグは `result` / `category` / `author` / `is_draft` / `repo` / `pr_number`。
 
 ### 3.3 Cloud Build パイプライン (`cloudbuild-pr.yaml`)
 
@@ -82,14 +84,17 @@ PRトリガーで実行される定義ファイルです。
 
 ```yaml
 steps:
-  - name: 'us-central1-docker.pkg.dev/$PROJECT_ID/infra-tools/ai-verifier:latest'
+  - name: 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/infra-tools/ai-verifier:latest'
     entrypoint: 'python'
-    args: ['/app/scripts/pr_reviewer.py']
+    args: ['scripts/pr_reviewer.py']
     secretEnv: ['GITHUB_TOKEN', 'DATADOG_API_KEY']
     env:
+      - 'PROJECT_ID=$PROJECT_ID'
       - 'PR_NUMBER=$_PR_NUMBER'
-      - 'REPO_FULL_NAME=$REPO_NAME'
+      - 'REPO_FULL_NAME=$REPO_FULL_NAME'
       - 'COMMIT_SHA=$COMMIT_SHA'
+      # Datadogを無効化する場合は false に変更する（デフォルト: true）
+      - 'DATADOG_ENABLED=true'
 
 availableSecrets:
   secretManager:

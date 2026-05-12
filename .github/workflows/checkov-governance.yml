@@ -1,0 +1,76 @@
+name: 'Security: Checkov (Governance + Modules, CIS GCP)'
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'governance/**'
+      - 'modules/**'
+      - '.github/workflows/checkov-governance.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'governance/**'
+      - 'modules/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  checkov-governance:
+    name: 'Checkov Governance (CIS GCP Strict)'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Checkov on governance/ (CIS GCP)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: governance
+          framework: terraform
+          check: CKV_GCP_*
+          quiet: true
+          soft_fail: false
+          hard_fail_on: MEDIUM,HIGH,CRITICAL
+          output_format: cli,sarif
+          output_file_path: console,results-governance.sarif
+          config_file: .checkov.yaml
+
+      - name: Upload SARIF (governance)
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results-governance.sarif
+          category: checkov-governance
+
+  checkov-modules:
+    name: 'Checkov Modules (CIS GCP Strict)'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Checkov on modules/ (CIS GCP)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: modules
+          framework: terraform
+          check: CKV_GCP_*
+          quiet: true
+          soft_fail: false
+          hard_fail_on: MEDIUM,HIGH,CRITICAL
+          output_format: cli,sarif
+          output_file_path: console,results-modules.sarif
+          config_file: .checkov.yaml
+
+      - name: Upload SARIF (modules)
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results-modules.sarif
+          category: checkov-modules

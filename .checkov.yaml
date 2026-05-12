@@ -1,0 +1,23 @@
+# Checkov 設定: CIS Google Cloud Platform Foundation Benchmark
+# 本プロジェクトの .clinerules セクション3・4の客観的チェックはここで担保する。
+# AIレビュアー (pr_reviewer.py) は主観的・設計的判断に集中させる。
+
+framework:
+  - terraform
+
+# CIS GCP に対応する主要チェック（.clinerules から委譲）
+# CKV_GCP_41  : roles/owner, roles/editor の付与禁止
+# CKV_GCP_49  : IAM ワイルドカード (*) 禁止
+# CKV_GCP_116 : リソース削除保護 (Lien相当)
+# CKV_GCP_25  : VPC Flow Logs 有効化
+# CKV_GCP_77  : Secret Manager シークレットのローテーション (※IAMプレフィックスルールはCheckov対象外・AIが担当)
+# CKV2_GCP_*  : 追加ベストプラクティス
+
+# プロジェクト固有の除外 (意図的な例外は judgments.md に記録すること)
+skip-check:
+  # 管理PJ内のデプロイ実務用 roles/editor は設計書で許可済み (judgments.md 参照)
+  # - CKV_GCP_41  ← 除外する場合はここに追加してコメントで理由を書く
+
+# 重大度ポリシー
+# governance/ + modules/: MEDIUM以上でハードフェイル (ワークフロー側で制御)
+# sandbox/:              CRITICAL のみハードフェイル (ワークフロー側で制御)

@@ -15,7 +15,11 @@
 5.  **開発者向け自動セットアップ**
     - プロジェクト完成時、開発者はサンプルキットをDLするだけでWIFによるapply/deployが可能に。
 6.  **AI 駆動型クロス検証 (Cloud Build CI)**
-    - Gemini 2.5-flash が Pull Request 作成時に設計思想 (`.clinerules`) との整合性を自動レビュー。承認された変更の逆引き仕様書（変更証跡）を自動生成してGCSバケットに直送・保存し、検証結果を GitHub PR コメントとしてフィードバック（Suggested Changes 含む）します。
+    - Gemini 2.5-flash が Pull Request 作成時に設計思想 (`.clinerules`) および過去の人間判断 (`logs/active_rules.md`) との整合性を自動レビュー。承認された変更の逆引き仕様書（変更証跡）を自動生成してGCSバケットに直送・保存し、検証結果を GitHub PR コメントとしてフィードバック（Suggested Changes 含む）します。
+7.  **CIS GCP ベースライン Checkov (governance / modules)**
+    - Google Cloud CIS Benchmark に基づく Checkov が `governance/` と `modules/` を対象に MEDIUM 以上の脆弱性をハードフェイルでブロック。客観的なIAM・ネットワーク・削除保護チェックはツールに委譲し、AIは設計判断に集中します。
+8.  **Datadog メトリクス監視（ON/OFF 切り替え可）**
+    - AI検閲の結果（pass/fail）を `result` / `category` / `author` 等のリッチなタグ付きで Datadog へ送信。`DATADOG_ENABLED=false` 1行で無効化可能。
 
 
 ## 前提条件 (Prerequisites)
@@ -31,6 +35,8 @@
 
 ```text
 gcp-base/
+├── .clinerules             # AIへのプロジェクト憲法（設計原則・禁止事項）
+├── .checkov.yaml           # Checkov CIS GCP 設定（意図的除外の管理）
 ├── .github/                # GitHub Actions ワークフロー定義
 ├── apps/                   # 各アプリ用スターターキット（テンプレート）
 ├── docs/                   # 思想、技術仕様、運用ガイド
@@ -44,6 +50,9 @@ gcp-base/
 │       └── factory/        # プロジェクト工場（各アプリ環境の払い出し）
 ├── infra/                  # 基盤オートメーション機能
 │   └── modules/            # 監査ボット, ライフサイクル管理
+├── logs/
+│   ├── judgments.md        # 人間による判断の監査証跡（append-only）
+│   └── active_rules.md     # AIが読む判例集（upsert運用・行数一定）
 ├── modules/                # 再利用可能な Terraform モジュール群
 │   ├── project_factory/    # プロジェクト払い出しエンジン
 │   ├── billing_base/       # 予算アラート通知
@@ -148,9 +157,18 @@ WIF（GitHub連携）、予算通知、監視ボットなどを構築します�
 
 ## セキュリティ設計 (Security by Design)
 
-- **State の完全分離**: 組織ポリシー、基盤インフラ、プロジェクト工場それぞれの台帳を分離し、被害半径を最小化。
-- **2系統のSA運用**: 組織権限を持つ特権 SA と、プロジェクト権限のみの通常 SA を使い分け。
-- **承認プロセスの強制**: GitHub Environments を活用し、組織ポリシーの変更には管理者の承認を必須とする運用を推奨。
+- **IPO対応のガバナンス**: `owner` や `editor` などの強い基本ロールを排除し、原則としてIAM条件(Conditions)を用いた時間的・スコープ的に限定された権限のみを使用。
+- **自律的レビュー**: コード変更はマージ前に `.clinerules` に基づいて AI (Gemini) が自律的にレビューし、違反があればブロック（Fail-Closed）。
+- **WIF の厳格化**: 各リポジトリのブランチに対して最小権限の Service Account を紐づけ、ワイルドカード（*）による認証を禁止。
+
+## AIとのフィードバックループ（判例集の二重運用）
+
+AIによる自動検閲が厳しすぎる場合や、プロジェクト特有の例外を許可する場合、AI同士で勝手に妥協せず人間に判断を仰ぎます。その際の「人間が下した判断」は、**監査証跡とAIコンテキスト供給の要件の違いを分離**するため、以下の2つのファイルで運用されます。
+
+1. **`logs/judgments.md`（IPO監査用の証跡）**
+   - いつ誰がなぜ例外を許可したかという証跡を **Append-only** で全て残します。AIはこのファイルは読みません（コンテキストウィンドウの枯渇を防ぐため）。
+2. **`logs/active_rules.md`（AIに読ませる判例集）**
+   - トピック（例: Draft PRの例外処理など）ごとに最新の判断のみを **Upsert（上書き）** して書き込みます。行数が無限に増えないため、AIへのコンテキスト供給を軽量かつコンパクトに保ちながら、過去の「判例」を憲法より優先して適用させることができます。
 
 ## 初期セットアップのヒント (Tips)
 
@@ -176,6 +194,16 @@ WIF（GitHub連携）、予算通知、監視ボットなどを構築します�
 terraform import google_org_policy_policy.legacy_allowed_domains organizations/YOUR_ORG_ID/policies/iam.allowedPolicyMemberDomains
 ```
 ## Changelog
+ [1.5.0] - 2026-05-12
+- [Feature] CIS Google Cloud Platform Foundation Benchmark に基づく Checkov を `governance/` と `modules/` に追加。`.checkov.yaml` で除外設定を一元管理。
+- [Refactor] `.clinerules` の3・4章から Checkov が機械的に検知できる項目（最小権限・ワイルドカード禁止・削除ロック等）を削除し、AIは設計判断に集中させる構造に整理。
+- [Feature] `logs/active_rules.md` を新設。AIが読む判例集として upsert 運用（行数が増えない）。`judgments.md`（監査証跡）と役割を分離。
+- [Feature] `pr_reviewer.py` が `logs/active_rules.md` を読み込み、過去の人間判断を憲法より優先して適用するように変更。
+- [Feature] Datadog メトリクスを `DATADOG_ENABLED` 環境変数で ON/OFF 切り替え可能に。送信タグを `result` / `category` / `author` / `is_draft` 等のリッチな構成に刷新。AIの FAIL 判定時に違反カテゴリ（IAM / SECRET / NETWORK 等）を Datadog タグとして送信。
+
+ [1.4.2] - 2026-05-10
+- [Feature] AI検閲官（Cloud Build版）の実行結果（PASS数など）をDatadogカスタムメトリクスとして送信する機能を追加統合。
+
  [1.4.1] - 2026-05-10
 - [BugFix] AI検閲官のフィードバックコメントが英語で出力される問題を修正し、完全な日本語出力を強制。
 - [BugFix] Cloud BuildでのCI実行時に発生するGitHub APIの認証エラー（403 Forbidden）および環境変数の参照エラーを修正。

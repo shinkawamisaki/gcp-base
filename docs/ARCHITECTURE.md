@@ -94,7 +94,9 @@ Project Factory を通じて作成された本番（prd）および検証（stg�
 - **設計思想との整合性チェック**: Gemini 2.5-flash が `.clinerules` と Git の差分を比較し、職務分掌や最小権限の原則に反する変更をブロックします。
 - **逆引き仕様書の自動生成とGCS直送**: 承認された変更については、AI が「誰が、何のために、どのような変更をしたか」を説明する逆引き仕様書を自動生成し、Gitリポジトリの肥大化と機密情報漏洩を防ぐため、直接 GCS バケット (`gs://[PROJECT_ID]-changelog-store`) にアップロードして IPO 審査の証跡とします。
 - **OSS向けフェイルセーフ**: GCP プロジェクト ID や Vertex AI ライブラリが未設定の場合でもエラーにせず、警告のみでコミットを許可する設計（疎結合）としています。厳格に運用したい場合は、`.env` 等で `STRICT_AI_VERIFY=true` を設定することで、未設定時にコミットをブロックできます。
-- **Datadog 連携**: AI による検証の成否（Pass/Fail）を Datadog へメトリクス送信し、監視の可視化を行います。
+- **判例集の参照**: AI検閲は `.clinerules`（憲法）に加え `logs/active_rules.md`（人間が下した判断の判例集）を読み込み、判例を憲法より優先して適用します。証跡は `logs/judgments.md` に append-only で保存し、判例集は upsert 運用で行数を一定に保ちます。
+- **Datadog 連携**: AI による検証の成否を Datadog へ送信。`result` / `category`（IAM・SECRET・NETWORK 等）/ `author` / `is_draft` 等のリッチなタグ付き。`DATADOG_ENABLED=false` で即時無効化可能。
+- **Checkov (CIS GCP)**: `governance/` および `modules/` に対して CIS Google Cloud Platform Foundation Benchmark を適用。IAM・ネットワーク・削除保護等の客観的チェックはツールに委譲し、AIは設計判断に集中。
 
 ## 7. ガバナンスの強制
 個別のプロジェクト設定に依存せず、組織全体で一律のガードレールを適用しています。
