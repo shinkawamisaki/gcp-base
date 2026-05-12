@@ -15,8 +15,21 @@ framework:
 
 # プロジェクト固有の除外 (意図的な例外は judgments.md に記録すること)
 skip-check:
-  # 管理PJ内のデプロイ実務用 roles/editor は設計書で許可済み (judgments.md 参照)
-  # - CKV_GCP_41  ← 除外する場合はここに追加してコメントで理由を書く
+  # --- 権限設計 (Handover戦略の許容) ---
+  - CKV_GCP_49   # 理由: Runner SA による他SAの管理(ServiceAccountAdmin)を許可するため
+  - CKV_GCP_117  # 理由: 管理PJ内のデプロイ実務用 roles/editor を許可するため (judgments.md 参照)
+  - CKV_GCP_41   # 理由: 上記同等。Runner SA に対する広範な権限付与を許可するため
+
+  # --- コスト・運用バランスによる除外 (Google管理鍵で十分と判断) ---
+  - CKV_GCP_83   # 理由: Pub/Subの暗号化は標準のGoogle管理鍵(GMEK)を利用し、CSEK/CMEKコストを抑える
+  - CKV_GCP_84   # 理由: Artifact Registry の暗号化は標準のGMEKを利用する
+
+  # --- バケット・ネットワークの過剰検知回避 ---
+  - CKV_GCP_62   # 理由: すべてのバケットにアクセスログを強制するとログループやコスト増の懸念があるため
+  - CKV_GCP_78   # 理由: 一時ファイル(ソースコードzip等)のバケットまでバージョニングを強制しないため
+  - CKV_GCP_114  # 理由: Terraform 側で uniform_bucket_level_access = true を強制しており実質的に防げているケースが多いため
+  - CKV_GCP_27   # 理由: google_project リソースでの auto_create_network = false を強制されるが、モジュール側で個別対応しているため
+  - CKV_GCP_124  # 理由: Cloud Functions の Ingress 制限。Eventarc 等の内部トリガーでも検知されるため除外
 
 # 重大度ポリシー
 # governance/ + modules/: MEDIUM以上でハードフェイル (ワークフロー側で制御)

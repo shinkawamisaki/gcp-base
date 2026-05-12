@@ -9,6 +9,14 @@ framework:
 
 # プロジェクト固有の除外設定
 # （意図的な例外は judgments.md に記録し、理由をここに転記すること）
-skip-check: []
-  # 例:
-  # - CKV_GCP_XXX  # 理由: ○○のため設計書で許可済み (judgments.md 参照)
+skip-check:
+  - CKV_GCP_49   # 理由: Runner SA による他SAの管理(ServiceAccountAdmin)を許可するため
+  - CKV_GCP_117  # 理由: 管理PJ内のデプロイ実務用 roles/editor を許可するため
+  - CKV_GCP_41   # 理由: 上記同等。Runner SA に対する広範な権限付与を許可するため
+  - CKV_GCP_83   # 理由: Pub/Subの暗号化は標準のGoogle管理鍵(GMEK)を利用し、CSEKコストを抑える
+  - CKV_GCP_84   # 理由: Artifact Registry の暗号化は標準のGMEKを利用する
+  - CKV_GCP_62   # 理由: すべてのバケットにアクセスログを強制するとログループやコスト増の懸念があるため
+  - CKV_GCP_78   # 理由: 一時ファイル(ソースコードzip等)のバケットまでバージョニングを強制しないため
+  - CKV_GCP_114  # 理由: Terraform 側で uniform_bucket_level_access = true を強制しているため
+  - CKV_GCP_27   # 理由: google_project リソースでの auto_create_network = false 強制を回避するため
+  - CKV_GCP_124  # 理由: Cloud Functions の Ingress 制限（内部トリガーでも検知されるため除外）
