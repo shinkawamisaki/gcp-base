@@ -194,6 +194,10 @@ AIによる自動検閲が厳しすぎる場合や、プロジェクト特有の
 terraform import google_org_policy_policy.legacy_allowed_domains organizations/YOUR_ORG_ID/policies/iam.allowedPolicyMemberDomains
 ```
 ## Changelog
+ [1.5.1] - 2026-05-13
+- [Fix] `platform-admin.yml` に `checkov-gate` ジョブを追加。Checkov と Terraform Apply が並列実行されていたため、`main` への直接 Push 時にセキュリティ違反があっても Apply が先に走ってしまう問題を修正。`deploy-foundation` / `deploy-factory` の `needs` に `checkov-gate` を追加し、Apply 前に必ず Checkov がパスすることを強制。
+- [Fix] `secret-scan.yml` の `gitleaks-action@v2` をプライベートリポジトリで `GITLEAKS_LICENSE` 未設定のままライセンスエラーで常に失敗していた問題を修正。gitleaks CLI を直接インストール・実行する方式に切り替えてライセンス不要化。
+
  [1.5.0] - 2026-05-12
 - [Feature] CIS Google Cloud Platform Foundation Benchmark に基づく Checkov を `governance/` と `modules/` に追加。`.checkov.yaml` で除外設定を一元管理。
 - [Refactor] `.clinerules` の3・4章から Checkov が機械的に検知できる項目（最小権限・ワイルドカード禁止・削除ロック等）を削除し、AIは設計判断に集中させる構造に整理。

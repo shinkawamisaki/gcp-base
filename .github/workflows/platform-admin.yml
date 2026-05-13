@@ -46,10 +46,42 @@ jobs:
             workflow:
               - '.github/workflows/platform-admin.yml'
 
-  # 1. 基盤（Foundation）のデプロイ
+  # 1. Checkov セキュリティチェック（Apply前にブロック）
+  checkov-gate:
+    name: 'Checkov Security Gate'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov on governance/
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: governance
+          framework: terraform
+          check: CKV_GCP_*
+          quiet: true
+          soft_fail: false
+          hard_fail_on: MEDIUM,HIGH,CRITICAL
+          config_file: .checkov.yaml
+
+      - name: Run Checkov on modules/
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: modules
+          framework: terraform
+          check: CKV_GCP_*
+          quiet: true
+          soft_fail: false
+          hard_fail_on: MEDIUM,HIGH,CRITICAL
+          config_file: .checkov.yaml
+
+  # 2. 基盤（Foundation）のデプロイ
   deploy-foundation:
     name: 'Apply Foundation'
-    needs: check-changes
+    needs: [check-changes, checkov-gate]
     if: needs.check-changes.outputs.foundation == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
@@ -87,10 +119,10 @@ jobs:
           terraform init -backend-config=backend.hcl
           terraform apply -auto-approve -input=false
 
-  # 2. 工場（Factory）のデプロイ
+  # 3. 工場（Factory）のデプロイ
   deploy-factory:
     name: 'Apply Factory'
-    needs: [check-changes, deploy-foundation]
+    needs: [check-changes, checkov-gate, deploy-foundation]
     # 💡 インベントリ変更時も確実に実行されるよう条件を網羅
     if: always() && !cancelled() && (needs.check-changes.outputs.factory == 'true' || needs.check-changes.outputs.inventory_changed == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
