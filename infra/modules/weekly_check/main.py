@@ -364,13 +364,13 @@ def get_secret(pj, name):
         res = client.access_secret_version(request={"name": name_path})
         return res.payload.data.decode("UTF-8").strip()
     except gcp_exceptions.PermissionDenied:
-        print(f"Security Notice: Secret Manager へのアクセス権限がありません (secret: {name})")
+        print("Security Notice: Secret Manager へのアクセス権限がありません")
         return None
     except gcp_exceptions.NotFound:
-        print(f"Security Notice: シークレットが見つかりません (secret: {name})")
+        print("Security Notice: シークレットが見つかりません")
         return None
     except Exception:
-        print(f"Security Notice: シークレットの取得に失敗しました (secret: {name})")
+        print("Security Notice: シークレットの取得に失敗しました")
         return None
 
 def get_ai_summary(api_key, text):
