@@ -1,6 +1,5 @@
 import os
 import requests
-import sys
 from datetime import datetime, timedelta
 from google.cloud import compute_v1, storage, iam_admin_v1, resourcemanager_v3, secretmanager_v1
 from google.api_core import exceptions as gcp_exceptions
