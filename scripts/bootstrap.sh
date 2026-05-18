@@ -330,8 +330,24 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   echo -e "${GREEN}[OK] GitHub 連携設定が完了しました。${NC}"
 fi
 
-# --- 10. 監査用セットアップログの保存 ---
-echo -e "\n${YELLOW}[10/10] 監査用セットアップログを保存中...${NC}"
+# --- 10. ローカル開発環境のセットアップ (pre-commit) ---
+echo -e "\n${YELLOW}[10/11] ローカル開発環境のセットアップ (pre-commit) を実行中...${NC}"
+if command -v pre-commit >/dev/null 2>&1; then
+  echo -e "pre-commit がインストールされています。フックを設定します。"
+  pre-commit install
+else
+  echo -e "${YELLOW}pre-commit が見つかりません。pip3 を使ってインストールを試みます...${NC}"
+  if command -v pip3 >/dev/null 2>&1; then
+    pip3 install pre-commit
+    pre-commit install
+    echo -e "${GREEN}[OK] pre-commit をインストールし、フックを設定しました。${NC}"
+  else
+    echo -e "${RED}[WARN] pip3 が見つかりません。手動で pre-commit をインストールし、'pre-commit install' を実行してください。${NC}"
+  fi
+fi
+
+# --- 11. 監査用セットアップログの保存 ---
+echo -e "\n${YELLOW}[11/11] 監査用セットアップログを保存中...${NC}"
 AUDIT_LOG_FILE="bootstrap_audit_log_$(date +%Y%m%d_%H%M%S).json"
 
 cat <<EOF > "$AUDIT_LOG_FILE"

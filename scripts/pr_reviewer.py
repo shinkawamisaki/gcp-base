@@ -11,7 +11,6 @@ import sys
 import re
 import json
 import datetime
-import tempfile
 import requests
 from google.cloud import storage
 

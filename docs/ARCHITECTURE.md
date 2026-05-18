@@ -89,13 +89,12 @@ Project Factory を通じて作成された本番（prd）および検証（stg�
 - **AIによる客観的な要約**: 検出された大量のログから「今すぐ対応すべき Top5」を Gemini が選別し、Slack に客観的なトーンで通知。
 - **証跡保存**: 監査結果は GCS バケットに Markdown 形式で保存され、後からの監査対応（IPO 審査等）にも利用可能。
 
-### 6.1 コミット前の AI クロス検証 (Pre-commit Hook)
-設計思想（プロジェクト憲法）から逸脱した変更を未然に防ぐため、Git のプレコミットフックとして `scripts/cross_verify.sh` を提供しています。
-- **設計思想との整合性チェック**: Gemini 2.5-flash が `.clinerules` と Git の差分を比較し、職務分掌や最小権限の原則に反する変更をブロックします。
-- **逆引き仕様書の自動生成とGCS直送**: 承認された変更については、AI が「誰が、何のために、どのような変更をしたか」を説明する逆引き仕様書を自動生成し、Gitリポジトリの肥大化と機密情報漏洩を防ぐため、直接 GCS バケット (`gs://[PROJECT_ID]-changelog-store`) にアップロードして IPO 審査の証跡とします。
-- **OSS向けフェイルセーフ**: GCP プロジェクト ID や Vertex AI ライブラリが未設定の場合でもエラーにせず、警告のみでコミットを許可する設計（疎結合）としています。厳格に運用したい場合は、`.env` 等で `STRICT_AI_VERIFY=true` を設定することで、未設定時にコミットをブロックできます。
-- **判例集の参照**: AI検閲は `.clinerules`（憲法）に加え `logs/active_rules.md`（人間が下した判断の判例集）を読み込み、判例を憲法より優先して適用します。証跡は `logs/judgments.md` に append-only で保存し、判例集は upsert 運用で行数を一定に保ちます。
-- **Datadog 連携**: AI による検証の成否を Datadog へ送信。`result` / `category`（IAM・SECRET・NETWORK 等）/ `author` / `is_draft` 等のリッチなタグ付き。`DATADOG_ENABLED=false` で即時無効化可能。
+### 6.1 PR時のAI自動検閲 (Cloud Build PR Reviewer)
+設計思想（プロジェクト憲法）から逸脱した変更を未然に防ぐため、PR（Pull Request）作成時に Cloud Build 上で自律的に動作する AI検閲官（`scripts/pr_reviewer.py`）を提供しています。
+- **設計思想との整合性チェック**: Gemini 2.5-flash が `.clinerules` と PR の差分を比較し、職務分掌や最小権限の原則に反する変更を検知します。不合格の場合は PR に「AI検閲官からのアドバイス」として自動コメントし、Status Check (`AI-Verifier`) を Failure にしてマージをブロックします（※Draft PRの場合は Warning 扱いとし通過を許可）。
+- **逆引き仕様書の自動生成とGCS保存**: 承認（PASS）された変更については、AI が「誰が、何のために、どのような変更をしたか」を説明する逆引き仕様書を自動生成し、Gitリポジトリの肥大化を防ぐため直接 GCS バケット (`gs://[PROJECT_ID]-changelog-store`) にアップロードし、IPO 審査の確実な証跡とします。
+- **判例集の参照**: AI検閲は `.clinerules`（憲法）に加え `logs/active_rules.md`（人間が下した判断の判例集）を読み込み、過去の例外や判断を憲法より優先して適用します。
+- **Datadog 連携**: AI による検証の成否を Datadog へ送信します。`result` / `category`（IAM・SECRET・NETWORK 等）/ `author` / `is_draft` 等のリッチなタグが付与されます（`DATADOG_ENABLED=false` で無効化可能）。
 - **Checkov (CIS GCP)**: `governance/` および `modules/` に対して CIS Google Cloud Platform Foundation Benchmark を適用。IAM・ネットワーク・削除保護等の客観的チェックはツールに委譲し、AIは設計判断に集中。
 
 ## 7. ガバナンスの強制

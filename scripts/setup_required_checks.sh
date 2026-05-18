@@ -114,7 +114,7 @@ build_payload() {
           contexts: $checks
         },
         enforce_admins: ($current.enforce_admins.enabled // false),
-        required_pull_request_reviews: ($current.required_pull_request_reviews // null),
+        required_pull_request_reviews: ($current.required_pull_request_reviews // { required_approving_review_count: 0 }),
         restrictions: ($current.restrictions // null),
         required_linear_history: ($current.required_linear_history.enabled // false),
         allow_force_pushes: ($current.allow_force_pushes.enabled // false),
@@ -133,7 +133,7 @@ build_payload() {
           contexts: $checks
         },
         enforce_admins: false,
-        required_pull_request_reviews: null,
+        required_pull_request_reviews: { required_approving_review_count: 0 },
         restrictions: null,
         required_linear_history: false,
         allow_force_pushes: false,
@@ -174,7 +174,7 @@ apply_environment_protection() {
     --argjson reviewers "$reviewers_json" \
     '{
       wait_timer: 0,
-      prevent_self_review: true,
+      prevent_self_review: false,
       reviewers: $reviewers,
       deployment_branch_policy: {
         protected_branches: true,

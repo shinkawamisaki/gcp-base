@@ -118,3 +118,5 @@ credentials.json
 
 # --- Changelogs (uploaded to GCS) ---
 docs/change-logs/
+logs/
+log/

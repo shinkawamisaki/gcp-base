@@ -1,12 +1,9 @@
 import os
-import json
-import base64
 import requests
 import time
 import jwt
 from datetime import datetime, timedelta
 from google.cloud import resourcemanager_v3, secretmanager_v1
-from googleapiclient import discovery
 
 class GitHubAppAuth:
     """GitHub App 認証用のトークンを取得するクラス"""
