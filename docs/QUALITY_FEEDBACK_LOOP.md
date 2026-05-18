@@ -109,7 +109,7 @@ A の取りこぼし → .gitleaks.toml の見直し（allowlistの縮小）
 B の取りこぼし → .checkov.yaml の見直し（skip-checkの削減）+ judgments.md への記録
 C の取りこぼし → terraform plan の人間によるレビュープロセス改善
 D の取りこぼし → judgments.md へ判例追加 → active_rules.md 更新 → 次回PRから自動適用
-E の取りこぼし → CodeQL設定見直し ＋ 脆弱性パターンを active_rules.md に移植し D(AI) を強化
+E の取りこぼし → CodeQL設定見直し（クエリやdismissの調整のみ）
 ```
 
 ```mermaid
@@ -118,15 +118,15 @@ flowchart LR
         A2["A: gitleaks<br>allowlistに追記"]
         B2["B: Checkov<br>skip-checkに追記<br>※judgments.md参照必須"]
         C2["C: terraform plan<br>フィードバックループなし<br>（事実の表示のみ）"]
+        E2["E: CodeQL<br>dismissで無視<br>クエリ設定で除外<br>ルールはGitHub固定"]
     end
 
     subgraph TIGHT["精度を上げる方向に動く"]
         D2["D: Gemini<br>judgments.md + active_rules.md<br>の二層構造"]
-        E2["E: CodeQL<br>GitHub Code Scanningに蓄積<br>→ active_rules.mdに判例追加"]
     end
 ```
 
-外部標準のツールは例外処理を追加する（制約を緩める）方向のフィードバックが主となるが、AIやCodeQLは新しい検知ルールを学習・追加する（精度を上げる）方向のフィードバックが機能する。
+フィードバックループで「判断ルール」に反映できるかどうかが、作用方向の分かれ目。CodeQLのルールはGitHub Security Lab固定であり、プロジェクト側でできるのはalert dismissやクエリ除外（制約を緩める方向）のみ。Geminiだけが判例の蓄積によって精度を上げる方向に動く。
 
 ```mermaid
 flowchart TD
@@ -136,14 +136,11 @@ flowchart TD
     CS["GitHub Commit Status<br>マージブロックの根拠"]
     GCS["GCS change-logs/<br>自動生成・PASS時のみ<br>逆引き仕様書<br>誰が何のために何を変えたか"]
     DD["Datadog<br>gcp.ai_verifier.review<br>result / author / category タグ<br>FAIL傾向の可視化"]
-    CSCAN["GitHub Code Scanning<br>CodeQL + Checkov SARIF<br>セキュリティアラートの集約"]
-
     J2 -->|同時に更新| AR2
     AR2 -->|pr_reviewer.py が毎PR読み込む| PR2
     PR2 --> CS
     PR2 --> GCS
     PR2 --> DD
-    CSCAN -->|アラート発生時<br>active_rules.mdへ判例追加| AR2
 ```
 
 ## 3. バグ発生時のトラブルシューティングと切り分け
@@ -166,7 +163,7 @@ flowchart TD
     A3["**A（gitleaks）の取りこぼし**<br>原因: allowlistが広すぎる<br>対処: .gitleaks.tomlを見直す"]
     B3["**B（Checkov）の取りこぼし**<br>原因: skip-checkが広すぎた<br>対処: .checkov.yamlを見直す<br>+ judgments.mdに記録"]
     C3["**C（terraform plan）の取りこぼし**<br>原因: planを人間が見ていなかった<br>対処: レビュープロセスを見直す"]
-    E3["**E（CodeQL）の取りこぼし**<br>原因: クエリがカバーしていない<br>対処: active_rules.mdに判例追加"]
+    E3["**E（CodeQL）の取りこぼし**<br>原因: クエリがカバーしていない<br>対処: CodeQL設定見直し（クエリ追加・dismiss調整）<br>※ active_rules.mdには連携しない"]
     D3["**D（Gemini）の取りこぼし**<br>原因: active_rules.mdに判例がなかった<br>対処: judgments.md追記<br>→ active_rules.md更新<br>→ 次PRから自動反映"]
 ```
 
@@ -183,27 +180,20 @@ flowchart TD
 ### 4.3 Datadog アラートの欠如
 AI検証の合否メトリクスはDatadogに送信されているものの、連続FAIL等の異常検知アラートが設定されていない。監視基盤の拡充が必要である。
 
-### 4.4 バグ切り分けの自動化（構想）
-CodeQLやCheckovのアラートを自動で分類し、Issue起票からAI検証ルールの更新までを一気通貫で行うシステムの構築を構想している。
+### 4.4 GitHub Code Scanning との関係（設計上の決定）
 
-```mermaid
-flowchart TD
-    ALERT["GitHub Code Scanning<br>アラート発生"]
-    WF["code_scanning_alert<br>ワークフローが起動"]
-    PARSE["rule.id で自動分類<br>CKV_GCP_* → B<br>gitleaks-* → A<br>その他 → D"]
-    SEV{"重大度"}
-    ISSUE["GitHub Issueを自動起票<br>+ judgments.md追記を促す"]
-    ISSUE2["Issue起票のみ<br>（追記は任意）"]
-    TRIAGE["pr_reviewer.py を<br>triage modeで実行<br>「どのルールで防げたか」を<br>Geminiに問う"]
-    UPDATE["judgments.md → active_rules.md 更新<br>次PRから自動反映"]
+GitHub Code Scanning（CodeQL + Checkov SARIF）はセキュリティアラートの履歴を蓄積するが、**`active_rules.md` への自動連携は行わない**という設計判断を下している。
 
-    ALERT --> WF --> PARSE --> SEV
-    SEV -->|CRITICAL / HIGH| ISSUE
-    SEV -->|MEDIUM以下| ISSUE2
-    ISSUE --> TRIAGE --> UPDATE
+理由は、CodeQLやCheckovが検出するのは「コードの客観的パターン」（未使用import、平文ロギング、IAMワイルドカード等）であり、これらはすでに静的解析ツールがカバーしている。「プロジェクトの設計思想を知らないと判定できない」という性質を持たないため、Gemini（D）に判例として学習させる必要がない。
+
+```text
+GitHub Code Scanning
+  └─ CodeQL / Checkov SARIF アラート蓄積
+       └─ alert dismiss / クエリ除外 でのみ対応（緩める方向）
+            ※ active_rules.md には連携しない
 ```
 
-既存の `pr_reviewer.py` をTriage Modeとして転用することで、この自動分類機能は実装可能である。
+> **判断基準:** `active_rules.md` に追加すべきなのは「同じ状況でGeminiが同じ判定ミスを繰り返す」ケースのみ。CodeQL findings はGitHub Code Scanningで管理し、ツールの設定（クエリ・dismiss）で対応する。
 
 ### 4.5 自動化の境界と人間の役割（設計哲学）
 障害の根本原因や「例外か違反か」の判断は、プロジェクトの設計思想に深く依存するためAIによる完全自動化は困難である。したがって、本システムの自動化のゴールは**「人間の判断を要求するところまで情報を整理して運ぶこと」**に設定している。
