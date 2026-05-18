@@ -2,11 +2,65 @@
 set -e
 
 echo "============================================================"
-echo "[INFO] Running pre-commit hooks"
+echo "[INFO] Pre-commit checks (Layer 1 - 開発者セーフティネット)"
+echo "       --no-verify で回避可能。Layer 2 (PR) が最終ゲートです。"
 echo "============================================================"
 
-# AI Cross-Verification is now moved to Cloud Build (pr_reviewer.py).
-# Local cross_verify.sh is no longer executed here to enforce server-side constraints.
+# --------------------------------------------------------------
+# A: gitleaks - ステージング済みの変更にシークレットが混入していないか
+# --------------------------------------------------------------
+# ※ Layer 2 (secret-scan.yml) でも検出されるが、git 履歴に刻む前に止めるのが目的。
+#    gitleaks protect --staged は add 済みの差分だけを見る。
+if command -v gitleaks >/dev/null 2>&1; then
+  echo "[INFO] A: gitleaks をチェック中..."
+  if ! gitleaks protect --staged --config .gitleaks.toml --redact 2>&1; then
+    echo ""
+    echo "[FAIL] gitleaks: シークレットの疑いがあります。コミットを中断します。"
+    echo "       意図的な除外が必要な場合は .gitleaks.toml の [allowlist] に追記してください。"
+    exit 1
+  fi
+  echo "[PASS] A: gitleaks クリア"
+else
+  echo "[SKIP] A: gitleaks 未インストール（brew install gitleaks / https://github.com/gitleaks/gitleaks）"
+fi
 
+# --------------------------------------------------------------
+# B: Checkov - ステージング済みの .tf ファイルを含むディレクトリを静的解析
+# --------------------------------------------------------------
+# ※ Layer 2 (checkov-governance.yml) でも検出されるが、PRを出す前にローカルで気づくのが目的。
+#    変更された .tf を含むディレクトリだけを対象にして速度を確保する。
+if command -v checkov >/dev/null 2>&1; then
+  STAGED_TF_DIRS=$(git diff --cached --name-only --diff-filter=ACMR \
+    | grep '\.tf$' \
+    | xargs -I{} dirname {} 2>/dev/null \
+    | sort -u || true)
+
+  if [ -z "$STAGED_TF_DIRS" ]; then
+    echo "[SKIP] B: Checkov - ステージング済みの .tf ファイルなし"
+  else
+    echo "[INFO] B: Checkov をチェック中..."
+    CHECKOV_FAILED=0
+    while IFS= read -r DIR; do
+      echo "       → $DIR"
+      if ! checkov -d "$DIR" --config-file .checkov.yaml --framework terraform --quiet 2>/dev/null; then
+        CHECKOV_FAILED=1
+      fi
+    done <<< "$STAGED_TF_DIRS"
+
+    if [ "$CHECKOV_FAILED" -ne 0 ]; then
+      echo ""
+      echo "[FAIL] Checkov: 違反が検出されました。コミットを中断します。"
+      echo "       意図的な除外の場合は .checkov.yaml の skip-check に追記し、"
+      echo "       理由を judgments.md に記録してください（IPO監査対応）。"
+      exit 1
+    fi
+    echo "[PASS] B: Checkov クリア"
+  fi
+else
+  echo "[SKIP] B: checkov 未インストール（pip install checkov）"
+fi
+
+echo "============================================================"
 echo "[SUCCESS] Pre-commit checks passed."
+echo "============================================================"
 exit 0
