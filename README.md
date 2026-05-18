@@ -196,69 +196,8 @@ AIによる自動検閲が厳しすぎる場合や、プロジェクト特有の
 terraform import google_org_policy_policy.legacy_allowed_domains organizations/YOUR_ORG_ID/policies/iam.allowedPolicyMemberDomains
 ```
 ## Changelog
- [1.5.1] - 2026-05-13
-- [Fix] `platform-admin.yml` に `checkov-gate` ジョブを追加。Checkov と Terraform Apply が並列実行されていたため、`main` への直接 Push 時にセキュリティ違反があっても Apply が先に走ってしまう問題を修正。`deploy-foundation` / `deploy-factory` の `needs` に `checkov-gate` を追加し、Apply 前に必ず Checkov がパスすることを強制。
-- [Fix] `secret-scan.yml` の `gitleaks-action@v2` をプライベートリポジトリで `GITLEAKS_LICENSE` 未設定のままライセンスエラーで常に失敗していた問題を修正。gitleaks CLI を直接インストール・実行する方式に切り替えてライセンス不要化。
 
- [1.5.0] - 2026-05-12
-- [Feature] CIS Google Cloud Platform Foundation Benchmark に基づく Checkov を `governance/` と `modules/` に追加。`.checkov.yaml` で除外設定を一元管理。
-- [Refactor] `.clinerules` の3・4章から Checkov が機械的に検知できる項目（最小権限・ワイルドカード禁止・削除ロック等）を削除し、AIは設計判断に集中させる構造に整理。
-- [Feature] `logs/active_rules.md` を新設。AIが読む判例集として upsert 運用（行数が増えない）。`judgments.md`（監査証跡）と役割を分離。
-- [Feature] `pr_reviewer.py` が `logs/active_rules.md` を読み込み、過去の人間判断を憲法より優先して適用するように変更。
-- [Feature] Datadog メトリクスを `DATADOG_ENABLED` 環境変数で ON/OFF 切り替え可能に。送信タグを `result` / `category` / `author` / `is_draft` 等のリッチな構成に刷新。AIの FAIL 判定時に違反カテゴリ（IAM / SECRET / NETWORK 等）を Datadog タグとして送信。
-
- [1.4.2] - 2026-05-10
-- [Feature] AI検閲官（Cloud Build版）の実行結果（PASS数など）をDatadogカスタムメトリクスとして送信する機能を追加統合。
-
- [1.4.1] - 2026-05-10
-- [BugFix] AI検閲官のフィードバックコメントが英語で出力される問題を修正し、完全な日本語出力を強制。
-- [BugFix] Cloud BuildでのCI実行時に発生するGitHub APIの認証エラー（403 Forbidden）および環境変数の参照エラーを修正。
-
- [1.4.0] - 2026-05-10
-- [Feature] AI検閲官の実行環境をローカルの pre-commit から Cloud Build (CI) へ移行し、Pull Request に対する自動レビュー機能へ進化（DX最適化）。
-- [Feature] GitHubの Suggested Changes を用いた修正案の自動提案機能を実装。
-
- [1.3.1] - 2026-05-06
-- [BugFix] Datadog送信スクリプトにてCodeQL（SAST）警告となるシークレット名の平文ログ出力を修正。
-- [Update] プロジェクト憲法（`.clinerules`）に静的解析(SAST)対応および機密情報の平文ログ出力禁止ルールを追記。
-
- [1.3.0] - 2026-05-04
-- [Feature] コミット前にGeminiによるAIクロス検証(Pre-commit Hook)を追加し、承認された変更の逆引き仕様書をGCSへ自動保存・Datadogへメトリクス送信するよう実装。
-- [Feature] アプリ・サンドボックス環境向けに、Checkovによるセキュリティガードレールを導入（脆弱性を含むコードをCIでブロック）。
-
- [1.2.1] - 2026-04-26
-- [BugFix] 実行ログにおける機密情報およびメタデータの露出を修正。
-- 各種ボット（ライフサイクル、監査）の実行ログに含まれていたプロジェクトIDを末尾4桁に匿名化。
-- アクセス失敗時の例外内容およびシークレット名をログから排除（抽象的なセキュリティ通知へ変更）  。
-
- [1.2.0] - 2026-04-25
-[Feature]認証をGithub PATからGithub APPに変更
-- サンドボックスの自動削除・開発者がプロジェクトでデプロイを行う際の認証をGithub PATからGithub APPに変更。
-- [BugFix]Boostrap　2回目以降実行時、バケットに条件付きポリシーが存在する場合、add-iam-policy-binding は非対話モードで  --condition=None（または明示的な条件）を要求するため処理が止まるエラーを修正。
-
- [1.1.1] - 2026-04-12
-- [BugFix]サンドボックス削除処理改修（削除対象がない時エラーで止まる不具合）
-
-- [Update]プロジェクト払い出し時のslack内容・通知先の修正
-
- [1.1.0] - 2026-04-11
-[Feature]APPデプロイ・パイプラインの刷新
-- 自動連鎖デプロイ：これまでは push するとstg環境だけにデプロイされていましたが、今回の修正で 「まずdev環境 へ。成功したら自動でstg環境へ」 と、1 回のプッシュで複数の環境を順番に更新できるようになりました。
-- 設定ガイド連動型の自動スキップ ：dev環境を持っていないプロジェクトでも同じワークフローが使えるよう、ID_DEV が空欄なら Actionsが自分で判断してdevデプロイをスキップしstgから開始する仕組みを導入しました。
-- テンプレート化による共通化 :複雑なデプロイ命令を _deploy_template.yml に1箇所にまとめたことで、インデントミスや設定漏れが起きにくい、メンテしやすい構造に刷新しました。
-
- [1.0.2] - 2026-04-10
-- [BugFix]サンドボックス削除通知・削除処理バグ改修（削除期限の値の受け渡し漏れ、削除期限判定の誤り）
-- PROJECT_GUIDE.md:ドキュメント内のymlの名称修正
-- ARCHITECTURE.md:依存関係（depends on）、ログ、通知について記載
-
- [1.0.1] - 2026-04-09
-- [BugFix]Uploadし忘れていたフォルダ（module）追加
-- [BugFix]サンドボックス削除権限が不足していたため追加
-- [BugFix]サンドボックス作成時既存データについてもslack通知するバグ改修
-
- [1.0.0] - 2026-04-09
-- 初回リリース
+バージョンごとの変更履歴は [GitHub Releases](../../releases) を参照してください。
 
 ## 作者 (Author)
 
