@@ -75,10 +75,12 @@ gcp-base/
    ./scripts/setup_secrets.sh
    ```
    ※ `setup_secrets.sh` を実行すると、Slack Webhook URL や Gemini API キーの入力を求められます。
-4. **Git フックの有効化（任意）**: ローカルでのフォーマットチェック等を有効にするため、以下のコマンドを実行します。
+4. **Git フックの有効化**: gitleaks（シークレット検知）と Checkov（Terraform 静的解析）をコミット前にローカルで実行するため、以下のコマンドを実行します。
    ```bash
    git config core.hooksPath .githooks
    ```
+   > **役割分担**: Layer 1（pre-commit）は開発者セーフティネットです。`--no-verify` で回避可能ですが、Layer 2（PR 時の GitHub Actions）が最終ゲートとして機能します。gitleaks と Checkov は両方に置くことで「早く気づく」と「確実に止める」を両立しています。
+   > **必要なツール**: `brew install gitleaks` / `pip install checkov`（未インストールの場合はスキップして続行します）
 ### Step 2: ガードレールの展開 (Governance)
 組織全体のルール（ドメイン制限の緩和等）を適用します。
 

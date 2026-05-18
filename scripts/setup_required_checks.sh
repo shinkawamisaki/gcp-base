@@ -334,11 +334,18 @@ main() {
     exit 1
   fi
 
-  mapfile -t repos < <(printf '%s\n' "${repos[@]}" | awk '!seen[$0]++')
+  # mapfile は bash 4+ のみ対応のため、macOS (bash 3.2) 互換の書き方に変更
+  local -a _deduped=()
+  while IFS= read -r _r; do
+    _deduped+=("$_r")
+  done < <(printf '%s\n' "${repos[@]}" | awk '!seen[$0]++')
+  repos=("${_deduped[@]}")
 
-  local checks='["Checkov Project Strict"]'
+  # ※ プライベートリポジトリへのブランチ保護設定は GitHub Pro 以上が必要です。
+  #    パブリックリポジトリ（gcp-base 等）では無償で利用可能です。
+  local checks='["Checkov Project Strict","AI-Verifier"]'
   if [ "$with_sandbox_critical" = "true" ]; then
-    checks='["Checkov Project Strict","Checkov Sandbox Critical Guardrail"]'
+    checks='["Checkov Project Strict","Checkov Sandbox Critical Guardrail","AI-Verifier"]'
   fi
 
   for repo in "${repos[@]}"; do
