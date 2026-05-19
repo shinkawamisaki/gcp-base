@@ -1,0 +1,23 @@
+# 認証情報・シークレット
+*.pem
+*.key
+credentials.json
+client_secret*.json
+*.sa.json
+.env.production
+secrets/
+
+# Terraform State / 構成ファイル
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+# ログ・バックアップ
+# logs/ は active_rules.md / judgments.md を Cline が読む必要があるため除外しない
+*.log
+*.bak
+*.dump
+
+# その他機密情報
+private/
