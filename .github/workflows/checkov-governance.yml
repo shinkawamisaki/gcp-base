@@ -3,10 +3,6 @@ name: 'Security: Checkov (Governance + Modules, CIS GCP)'
 on:
   pull_request:
     branches: [ main ]
-    paths:
-      - 'governance/**'
-      - 'modules/**'
-      - '.github/workflows/checkov-governance.yml'
   push:
     branches: [ main ]
     paths:
@@ -23,10 +19,18 @@ jobs:
     name: 'Checkov Governance (CIS GCP Strict)'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            tf:
+              - 'governance/**'
+              - '.github/workflows/checkov-governance.yml'
 
       - name: Run Checkov on governance/ (CIS GCP)
+        if: steps.filter.outputs.tf == 'true'
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: governance
@@ -40,21 +44,33 @@ jobs:
           config_file: .checkov.yaml
 
       - name: Upload SARIF (governance)
-        if: always()
+        if: steps.filter.outputs.tf == 'true' && always()
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results-governance.sarif
           category: checkov-governance
 
+      - name: Skip (no Terraform changes)
+        if: steps.filter.outputs.tf == 'false'
+        run: echo "No changes in governance/ — Checkov skipped"
+
   checkov-modules:
     name: 'Checkov Modules (CIS GCP Strict)'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            tf:
+              - 'modules/**'
+              - '.github/workflows/checkov-governance.yml'
 
       - name: Run Checkov on modules/ (CIS GCP)
+        if: steps.filter.outputs.tf == 'true'
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: modules
@@ -68,9 +84,13 @@ jobs:
           config_file: .checkov.yaml
 
       - name: Upload SARIF (modules)
-        if: always()
+        if: steps.filter.outputs.tf == 'true' && always()
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results-modules.sarif
           category: checkov-modules
+
+      - name: Skip (no Terraform changes)
+        if: steps.filter.outputs.tf == 'false'
+        run: echo "No changes in modules/ — Checkov skipped"
