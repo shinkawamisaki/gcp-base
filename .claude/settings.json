@@ -9,6 +9,11 @@
         "matcher": "Bash.*git push.*(main|master)",
         "hooks": [{"type": "command", "command": "echo '⚠️ mainブランチへの直接pushは確認後に手動で実行してください' && exit 1"}]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/verify_stop_hook.sh\""}]
+      }
     ]
   }
 }
