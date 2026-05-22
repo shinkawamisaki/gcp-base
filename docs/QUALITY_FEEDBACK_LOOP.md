@@ -9,7 +9,7 @@
 
 ```mermaid
 flowchart TD
-    L0["**Layer 0**<br>コーディング<br>Cline + .clinerules"]
+    L0["**Layer 0**<br>コーディング<br>Claude Code + CLAUDE.md<br>Stop hook で terraform validate"]
     L1["**Layer 1**<br>pre-commit<br>gitleaks + Checkov<br>ローカルで即時フィードバック<br>（スキップ可）"]
     L2["**Layer 2**<br>PR時の自動検査（並列）<br>強制ゲート（スキップ不可）<br>A: gitleaks　B: Checkov　C: terraform plan<br>D: Gemini AI　E: CodeQL"]
     L3["**Layer 3**<br>デプロイ<br>terraform apply<br>prd-org-policy-sa"]
@@ -58,20 +58,22 @@ flowchart LR
 
 ### Layer 0（開発 AI エージェント）
 
-開発を担当するAIエージェント（Cline）はセッション間でコンテキストを保持しないため、ルールやプロジェクト固有の微調整をファイルシステム上に記憶として永続化する。
+開発を担当するAIエージェント（Claude Code）はセッション間でコンテキストを保持しないため、ルールやプロジェクト固有の微調整をファイルシステム上に記憶として永続化する。
+
+> **writer と reviewer の関係:** 設計思想の正典は `.clinerules`（全モデル共通の憲法）で、writer・reviewer の双方がこれに従う。writer（Claude Code）は CLAUDE.md 経由で `.clinerules` を取り込み「正しいコードを書くため」に参照する。reviewer（Layer 2 D / Gemini）は同じ憲法で独立に照合する強制ゲート。二段レビューの価値は writer の無知ではなく「別モデル・独立したゲート」にあり、writer が「レビュー通過」を目的化しないことが要点（Goodhart の罠の回避）。
 
 ```mermaid
 flowchart TD
-    CODE["clinerules を読んでClineがコードを書く"]
+    CODE["CLAUDE.md を読んで Claude Code がコードを書く"]
     EVENT["設計変更・差し戻し・背景の共有"]
-    NOTES["log/ai-notes.md<br>に申し送りを追記"]
+    NOTES["logs/ai-notes.md<br>に申し送りを追記"]
     NEXT["次のセッション開始時に<br>AIが読み込む"]
     RESULT["同じ失敗・同じ質問を繰り返さない"]
 
     CODE --> EVENT --> NOTES --> NEXT --> RESULT
 ```
 
-> **特性:** 本レイヤーのフィードバックループは、人間による明示的な記録（`log/ai-notes.md`の更新）に依存する。
+> **特性:** 本レイヤーのフィードバックループは、人間による明示的な記録（`logs/ai-notes.md`の更新）に依存する。
 
 ---
 
@@ -205,6 +207,9 @@ GitHub Code Scanning
 
 開発体験とセキュリティ・ガバナンス要件を両立するため、以下の役割分担を定義する。
 
+* **Layer 0（コーディング）:** Claude Code の Stop hook（`terraform validate`）
+  * **目的:** AI が `.tf` を変更したターンで自己検証し、構文エラーを次レイヤーへ送らない
+  * **制約:** Claude Code 限定（Cline・手書きには非適用。ツール非依存の検証は Layer 1 / 2 が担う）
 * **Layer 1（pre-commit）:** gitleaks + Checkov 
   * **目的:** 開発者への即時フィードバック
   * **制約:** スキップ可（ローカルの柔軟性確保）
