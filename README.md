@@ -21,6 +21,43 @@
 8.  **Datadog メトリクス監視（ON/OFF 切り替え可）**
     - AI検閲の結果（pass/fail）を `result` / `category` / `author` 等のリッチなタグ付きで Datadog へ送信。`DATADOG_ENABLED=false` 1行で無効化可能。
 
+## AI オーケストレーション全体像 (Architecture Overview)
+
+上記の機能群は、「開発者のリズムを止めない反射層（ローカル）」と「回避不能な熟考層（Cloud Build CI）」を組み合わせた、PR ベースの非同期フィードバックループとして連携します。
+
+```mermaid
+graph TD
+    subgraph "1. 反射層: ローカル環境 (Fast)"
+        A[開発者] -->|git commit| B(Pre-commit: gitleaks/Checkov)
+        B -->|git push| C(Pull Request 作成)
+    end
+
+    subgraph "2. 熟考層: Cloud Build 非同期検証 (Deep)"
+        C --> D[Cloud Build 起動 / コンテナ実行]
+        D --> E{AI検閲官: Gemini 2.5 Flash}
+        E -->|.clinerules 違反| F[PRに修正案を自動コメント ❌]
+        E -->|ルール準拠| G[PRマージ許可 ✅]
+    end
+
+    subgraph "3. 証跡の自動生成 (AI Documentation)"
+        G --> H[Gemini: 逆引き仕様書の生成]
+        H --> I[(GCS: changelog-store)]
+    end
+
+    subgraph "4. 継続的インフラ監査 (weekly_check)"
+        J[Cloud Scheduler] --> K(Cloud Functions)
+        K --> L[GCP リソース/権限スキャン]
+        L --> M[Gemini: 膨大なログからTop5の脅威を抽出]
+        M --> N[Slack 通知]
+    end
+
+    subgraph "5. AI オブザーバビリティ"
+        E -.-> O((Datadog メトリクス))
+        H -.-> O
+    end
+```
+
+> レビュー層（Layer 0/1/2）の責任分界・判定基準の詳細は [`docs/QUALITY_FEEDBACK_LOOP.md`](docs/QUALITY_FEEDBACK_LOOP.md) を参照。
 
 ## 前提条件 (Prerequisites)
 
