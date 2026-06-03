@@ -58,22 +58,36 @@ flowchart LR
 
 ### Layer 0（開発 AI エージェント）
 
-開発を担当するAIエージェント（Claude Code）はセッション間でコンテキストを保持しないため、ルールやプロジェクト固有の微調整をファイルシステム上に記憶として永続化する。
+開発を担当するAIエージェント（Claude Code）はセッション間でコンテキストを保持しないため、必要な記憶を用途別に永続化先を分けてファイルシステム／個人メモリに残す。
 
 > **writer と reviewer の関係:** 設計思想の正典は `.clinerules`（全モデル共通の憲法）で、writer・reviewer の双方がこれに従う。writer（Claude Code）は CLAUDE.md 経由で `.clinerules` を取り込み「正しいコードを書くため」に参照する。reviewer（Layer 2 D / Gemini）は同じ憲法で独立に照合する強制ゲート。二段レビューの価値は writer の無知ではなく「別モデル・独立したゲート」にあり、writer が「レビュー通過」を目的化しないことが要点（Goodhart の罠の回避）。
 
+記憶の永続化先は次の3経路に分業する（Cline 時代の単一ノート `logs/ai-notes.md` は廃止）：
+
+| 種別 | 永続化先 | 読む主体 |
+|---|---|---|
+| 設計思想・ルールの更新 | `CLAUDE.md` / `.clinerules` | writer（次回セッション） |
+| 人間判断の判例 | `logs/judgments.md` → `logs/active_rules.md`（Layer 2 D に合流） | reviewer（Gemini） |
+| 個人の作業習慣 | auto-memory（Claude Code 個人メモリ） | writer（自動） |
+
 ```mermaid
 flowchart TD
-    CODE["CLAUDE.md を読んで Claude Code がコードを書く"]
     EVENT["設計変更・差し戻し・背景の共有"]
-    NOTES["logs/ai-notes.md<br>に申し送りを追記"]
-    NEXT["次のセッション開始時に<br>AIが読み込む"]
-    RESULT["同じ失敗・同じ質問を繰り返さない"]
+    R{種別で振り分け}
+    RULE["CLAUDE.md / .clinerules<br>（設計・ルール）"]
+    JUDGE["logs/judgments.md<br>（人間判断 → Layer 2 D へ合流）"]
+    MEM["auto-memory<br>（個人の作業習慣）"]
+    NEXT["次のセッションで<br>該当経路から読み込む"]
 
-    CODE --> EVENT --> NOTES --> NEXT --> RESULT
+    EVENT --> R
+    R --> RULE
+    R --> JUDGE
+    R --> MEM
+    RULE --> NEXT
+    MEM --> NEXT
 ```
 
-> **特性:** 本レイヤーのフィードバックループは、人間による明示的な記録（`logs/ai-notes.md`の更新）に依存する。
+> **特性:** かつては単一の `logs/ai-notes.md` に人間が申し送りを書いていたが、用途が上記3経路へ明確化されたため廃止した（固有だった判例は `logs/judgments.md` に移設・保全済み）。
 
 ---
 
@@ -174,7 +188,7 @@ flowchart TD
 ## 4. 運用上の課題と今後の展望
 
 ### 4.1 フィードバックループの人手依存
-現状、各種ログファイル（`judgments.md`, `active_rules.md`, `ai-notes.md`）の更新は人間の介入を前提としている。今後はIssueやPRの議論からAIが自動で判例ドラフトを作成する仕組みが望まれる。
+現状、各種ログファイル（`judgments.md`, `active_rules.md`）の更新は人間の介入を前提としている。今後はIssueやPRの議論からAIが自動で判例ドラフトを作成する仕組みが望まれる。
 
 ### 4.2 terraform plan の自動ゲート化
 現在 `terraform plan` の結果はPRにコメントされるのみであり、破壊的変更を機械的にブロックする仕組みが存在しない。OPA（Open Policy Agent）や Sentinel の導入によるポリシーのコード化（Policy as Code）が今後の課題である。
