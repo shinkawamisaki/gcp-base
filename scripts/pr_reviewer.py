@@ -24,6 +24,8 @@ PR_NUMBER = os.environ.get("PR_NUMBER")
 COMMIT_SHA = os.environ.get("COMMIT_SHA")
 STRICT_AI_VERIFY = os.environ.get("STRICT_AI_VERIFY", "false").lower() == "true"
 LOCATION = os.environ.get("VERTEX_LOCATION", "asia-northeast1")
+# モデルIDはハードコードせず変数化する（weekly_check と統一）。
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 DATADOG_ENABLED = os.environ.get("DATADOG_ENABLED", "false").lower() == "true"
 
 if not all([PROJECT_ID, GITHUB_TOKEN, REPO_FULL_NAME, PR_NUMBER, COMMIT_SHA]):
@@ -145,12 +147,16 @@ def redact_sensitive_info(text):
 def main():
     print("[INFO] AI検閲官 (Cloud Build版) を開始します。")
     
-    # Vertex AI インポート（エラーハンドリング）
+    # Vertex AI (google-genai) インポート（エラーハンドリング）
+    # NOTE: weekly_check は top-level import だが、ここでは import を main 内の
+    #       try/except に置く。これは STRICT_AI_VERIFY による fail-open ガードの
+    #       一部であり、SDK 欠落時に set_commit_status("error") で明示し、§5 に従い
+    #       スタックトレースを出さず抽象化したうえで exit(2 if strict) で止めるため。
+    #       pr_reviewer 固有の意図的な差分。
     try:
-        import vertexai
-        from vertexai.generative_models import GenerativeModel
+        from google import genai
     except ImportError:
-        print("[ERROR] google-cloud-aiplatform がインストールされていません。")
+        print("[ERROR] google-genai がインストールされていません。")
         set_commit_status("error", "AI Platform setup failed")
         sys.exit(2 if STRICT_AI_VERIFY else 0)
 
@@ -218,13 +224,16 @@ def main():
         diff=diff_content_masked,
     )
 
-    # Gemini APIの呼び出し
-    vertexai.init(project=PROJECT_ID, location=LOCATION)
-    model = GenerativeModel("gemini-2.5-flash")
+    # Gemini APIの呼び出し（Vertex AI バックエンド / ADC 認証）
+    client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
     
-    print("[INFO] Gemini 2.5 Flash に検閲をリクエストしています...")
+    print(f"[INFO] {MODEL} に検閲をリクエストしています...")
     try:
-        response = model.generate_content(prompt, generation_config={"temperature": 0.0})
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=prompt,
+            config={"temperature": 0.0},
+        )
         result_text = response.text.strip()
     except Exception as e:
         print(f"[ERROR] Vertex AI 呼び出しエラー: {e}")
@@ -263,10 +272,10 @@ def main():
         send_datadog_metrics("pass", is_draft, pr_author)
 
         # 逆引き仕様書生成
-        generate_changelog(model, diff_content_masked)
+        generate_changelog(client, diff_content_masked)
         sys.exit(0)
 
-def generate_changelog(model, diff_content):
+def generate_changelog(client, diff_content):
     print("\n[INFO] 逆引き仕様書（変更証跡）を生成しています...")
     doc_prompt = """あなたは優秀なテクニカルライターです。
 以下の変更内容（git diff）から、「誰が、何のために、どのような変更をしたか」を説明する逆引き仕様書（Markdown形式）を作成してください。
@@ -284,7 +293,11 @@ def generate_changelog(model, diff_content):
 """
     prompt = doc_prompt.format(diff=diff_content)
     try:
-        doc_response = model.generate_content(prompt, generation_config={"temperature": 0.2})
+        doc_response = client.models.generate_content(
+            model=MODEL,
+            contents=prompt,
+            config={"temperature": 0.2},
+        )
         doc_text = doc_response.text.strip()
         
         date_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
