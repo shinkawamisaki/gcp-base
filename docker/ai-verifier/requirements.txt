@@ -1,6 +1,12 @@
-google-cloud-aiplatform
+# google-genai: Gemini 呼び出しに使う新SDK（旧 vertexai 生成系の後継）。
+# 旧 google-cloud-aiplatform は移行完了に伴い除去した。
+google-genai
 requests
 datadog
 ddtrace
 google-cloud-storage
 google-cloud-secret-manager
+# protobuf: 推移依存（grpcio / google-api-core 経由）。旧 aiplatform が 6.33.x に
+# 拘束していたが、その除去で 7.x に浮き、GHSA-7gcm-g887-7qv7（再帰によるDoS）の
+# 安全圏を外れる恐れがある。安全圏かつ google-genai 2.7.0 と実績のある 6.33.x に固定する。
+protobuf>=6.33.5,<7
