@@ -70,8 +70,9 @@ set_secret() {
 echo -e "${YELLOW}Hint: 登録済みの値を変更しない場合は、何も入力せず Enter を押してください。${NC}"
 
 # Admin (Infra) プロジェクトに全ての鍵を集約
-# 注: 旧 infra-gemini-api-key は廃止。AI 要約/検閲は Vertex AI を ADC（SA の roles/aiplatform.user）で
-#     呼び出す鍵レス構成に移行したため、Gemini API キーは作成しない。
+# 注: AI 要約/検閲は Vertex AI を ADC（roles/aiplatform.user）で呼ぶ鍵レス構成へ移行済み。
+#     よって infra-gemini-api-key の「値」は不要で、このスクリプトでは入力を求めない。
+#     ※シークレット枠自体は現状まだ bootstrap.sh / foundation/main.tf に残存（完全撤去は別タスク）。
 set_secret "$ADMIN_PJ" "infra-audit-slack-webhook" "週次セキュリティ監査レポートの通知先 (#gcp-security)"
 set_secret "$ADMIN_PJ" "infra-ops-slack-webhook" "全般的な運用・システムアラート用 (#gcp-ops)"
 set_secret "$ADMIN_PJ" "infra-deploy-slack-webhook" "プロジェクト作成・削除等のインフラ構築通知用 (#gcp-infra)"
