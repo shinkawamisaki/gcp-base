@@ -1,6 +1,7 @@
 # google-genai: Gemini 呼び出しに使う新SDK（旧 vertexai 生成系の後継）。
 # 旧 google-cloud-aiplatform は移行完了に伴い除去した。
-# 再現性のためバージョンを固定する（protobuf と同流儀＝マイナー許容・次メジャーで止める）。
+# 互換レンジに制限し、想定外の breaking（次メジャー 3.x）取り込みを防ぐ（protobuf と同流儀）。
+# ※これは互換レンジであって厳密な再現ロックではない。再現ビルドが必要なら constraints/lockfile で ==pin すること。
 google-genai>=2.7.0,<3
 requests
 datadog
