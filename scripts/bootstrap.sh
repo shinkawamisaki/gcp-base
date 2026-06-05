@@ -194,7 +194,6 @@ echo -e "\n${BLUE}組織レベルの権限委譲およびシークレットの�
 # これを物理構築(bootstrap)で行うことで、CI/CDの初動での 404 エラーを確実に防ぎます。
 # 権限（誰が読めるか）の管理はTerraform 側で一元管理します。
 REQUIRED_SECRETS=(
-  "infra-gemini-api-key"
   "infra-deploy-slack-webhook"
   "infra-audit-slack-webhook"
   "infra-billing-slack-webhook"
