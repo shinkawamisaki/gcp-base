@@ -150,15 +150,20 @@ def main():
     # Vertex AI (google-genai) インポート（エラーハンドリング）
     # NOTE: weekly_check は top-level import だが、ここでは import を main 内の
     #       try/except に置く。これは STRICT_AI_VERIFY による fail-open ガードの
-    #       一部であり、SDK 欠落時に set_commit_status("error") で明示し、§5 に従い
-    #       スタックトレースを出さず抽象化したうえで exit(2 if strict) で止めるため。
-    #       pr_reviewer 固有の意図的な差分。
+    #       一部。検閲不能（SDK欠落 / Vertexエラー）時は §5 に従いスタックトレースを
+    #       出さず抽象化し、STRICT=true なら error+exit(2) でブロック、STRICT=false
+    #       なら success(skipped)+exit(0) で「真の fail-open」とする。pr_reviewer 固有の差分。
     try:
         from google import genai
     except ImportError:
         print("[ERROR] google-genai がインストールされていません。")
-        set_commit_status("error", "AI Platform setup failed")
-        sys.exit(2 if STRICT_AI_VERIFY else 0)
+        if STRICT_AI_VERIFY:
+            set_commit_status("error", "AI Platform setup failed")
+            sys.exit(2)
+        # fail-open: 検閲不能でもマージをブロックしない。status を error にすると
+        # 必須チェック設定で実質ブロックになり fail-open 契約に反するため success とする。
+        set_commit_status("success", "AI verification skipped (SDK missing)")
+        sys.exit(0)
 
     # PR情報と差分の取得
     pr_info = get_pr_info()
@@ -237,8 +242,12 @@ def main():
         result_text = response.text.strip()
     except Exception as e:
         print(f"[ERROR] Vertex AI 呼び出しエラー: {e}")
-        set_commit_status("error", "AI verification failed")
-        sys.exit(2 if STRICT_AI_VERIFY else 0)
+        if STRICT_AI_VERIFY:
+            set_commit_status("error", "AI verification failed")
+            sys.exit(2)
+        # fail-open: 同上。検閲不能を success(skipped) として通し、マージをブロックしない。
+        set_commit_status("success", "AI verification skipped (Vertex error)")
+        sys.exit(0)
 
     # 結果の判定とフィードバック
     pr_author = pr_info.get("user", {}).get("login", "unknown")
