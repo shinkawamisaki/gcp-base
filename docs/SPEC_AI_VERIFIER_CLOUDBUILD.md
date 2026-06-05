@@ -34,7 +34,7 @@
 | ファイルパス | アクション | 概要 |
 | :--- | :--- | :--- |
 | `docker/ai-verifier/Dockerfile` | 新規作成 | AI検閲官の実行環境（Python 3.11ベース） |
-| `docker/ai-verifier/requirements.txt` | 新規作成 | 依存ライブラリ（`google-generativeai`, `requests`, `datadog` 等） |
+| `docker/ai-verifier/requirements.txt` | 新規作成 | 依存ライブラリ（`google-genai`(Vertex AI), `requests`, `datadog` 等） |
 | `scripts/pr_reviewer.py` | 新規作成 | AI検閲のメインロジック（`cross_verify.sh` のPython移植版） |
 | `cloudbuild-pr.yaml` | 新規作成 | PR時に発火するCloud Buildのパイプライン定義 |
 | `governance/admin/foundation/build.tf` | 修正/追記 | Artifact Registry, Cloud Build Trigger, IAM権限の定義 |
@@ -48,7 +48,7 @@
 *   **ベースイメージ**: `python:3.11-slim`
 *   **インストールパッケージ**: `git`, `jq` (OSパッケージ)
 *   **Pythonパッケージ**:
-    *   `google-generativeai` (Gemini API呼び出し)
+    *   `google-genai` (Vertex AI バックエンド経由の Gemini 呼び出し / ADC 認証・API キー不要)
     *   `requests` (GitHub API呼び出し用)
     *   `datadog` / `ddtrace` (メトリクス送信・オブザーバビリティ)
 
@@ -69,7 +69,7 @@
 1.  **差分取得**: GitHub API を使用してPRの差分を取得。
 2.  **機密情報のマスク**: 正規表現によるパスワード・IPのマスク。
 3.  **AIプロンプト構築**: `.clinerules`（憲法）と `logs/active_rules.md`（判例集）と差分を結合。判例集は upsert 運用で行数が一定に保たれる。判例は憲法より優先してプロンプトに指示する。
-4.  **Gemini API呼び出し**: `gemini-2.5-flash` を使用。
+4.  **Gemini 呼び出し (Vertex AI 経由)**: `gemini-2.5-flash` を使用（`google-genai` + ADC 認証。API キー不要）。
 5.  **結果解析とGitHubフィードバック**:
     *   **ノイズ管理**: 既存のボットコメントが存在する場合は Update する（新規投稿でタイムラインを汚さない）。
     *   **Draft PRの聖域化**: Draft状態ではFAIL判定でもStatus CheckをSuccessで通過させる（`logs/judgments.md` 判例 DX-001 参照）。

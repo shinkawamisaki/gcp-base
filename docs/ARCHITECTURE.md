@@ -87,11 +87,12 @@ Project Factory を通じて作成された本番（prd）および検証（stg�
 - **フォルダ横断スキャン**: 特定のプロジェクトだけでなく、指定したフォルダ（Workloads, Sandboxes 等）配下の全プロジェクトを自動で列挙し、ファイアウォール全開放や公開バケットなどのリスクを検知。
 - **高度なリスク検知**: IAP (Identity-Aware Proxy) を介さない SSH 直接露出の検知や、重要サービスの監査ログ設定状況を精査。
 - **AIによる客観的な要約**: 検出された大量のログから「今すぐ対応すべき Top5」を Gemini が選別し、Slack に客観的なトーンで通知。
+- **鍵レス認証（最小権限）**: AI 要約は **Vertex AI** を ADC（監査 SA の `roles/aiplatform.user`）で呼び出し、長命な Gemini API キーを排除。資格情報そのものを持たないため、VPC-SC / データレジデンシー / Cloud Audit Logs といった組織統制（IPO 監査・最小権限）にも準拠します。
 - **証跡保存**: 監査結果は GCS バケットに Markdown 形式で保存され、後からの監査対応（IPO 審査等）にも利用可能。
 
 ### 6.1 PR時のAI自動検閲 (Cloud Build PR Reviewer)
 設計思想（プロジェクト憲法）から逸脱した変更を未然に防ぐため、PR（Pull Request）作成時に Cloud Build 上で自律的に動作する AI検閲官（`scripts/pr_reviewer.py`）を提供しています。
-- **設計思想との整合性チェック**: Gemini 2.5-flash が `.clinerules` と PR の差分を比較し、職務分掌や最小権限の原則に反する変更を検知します。不合格の場合は PR に「AI検閲官からのアドバイス」として自動コメントし、Status Check (`AI-Verifier`) を Failure にしてマージをブロックします（※Draft PRの場合は Warning 扱いとし通過を許可）。
+- **設計思想との整合性チェック**: Gemini 2.5-flash が `.clinerules` と PR の差分を比較し、職務分掌や最小権限の原則に反する変更を検知します。不合格の場合は PR に「AI検閲官からのアドバイス」として自動コメントし、Status Check (`AI-Verifier`) を Failure にしてマージをブロックします（※Draft PRの場合は Warning 扱いとし通過を許可）。AI 検閲官も **Vertex AI を ADC で呼び出す鍵レス構成**で、API キーを持ちません。
 - **逆引き仕様書の自動生成とGCS保存**: 承認（PASS）された変更については、AI が「誰が、何のために、どのような変更をしたか」を説明する逆引き仕様書を自動生成し、Gitリポジトリの肥大化を防ぐため直接 GCS バケット (`gs://[PROJECT_ID]-changelog-store`) にアップロードし、IPO 審査の確実な証跡とします。
 - **判例集の参照**: AI検閲は `.clinerules`（憲法）に加え `logs/active_rules.md`（人間が下した判断の判例集）を読み込み、過去の例外や判断を憲法より優先して適用します。
 - **Datadog 連携**: AI による検証の成否を Datadog へ送信します。`result` / `category`（IAM・SECRET・NETWORK 等）/ `author` / `is_draft` 等のリッチなタグが付与されます（`DATADOG_ENABLED=false` で無効化可能）。
