@@ -96,7 +96,6 @@ data "google_secret_manager_secret" "required_secrets" {
     var.billing_slack_secret_name,
     var.sandbox_slack_secret_name,
     var.monitoring_slack_secret_name,
-    "infra-gemini-api-key",
     "infra-github-app-id",
     "infra-github-app-private-key",
     "infra-github-app-installation-id"
@@ -135,13 +134,9 @@ resource "google_secret_manager_secret_iam_member" "runner_monitoring_slack_acce
   member    = "serviceAccount:${data.google_service_account.terraform_runner.email}"
 }
 
-# GitHub Actions が Gemini API キーを読み取れるようにします
-resource "google_secret_manager_secret_iam_member" "runner_gemini_accessor" {
-  project   = data.google_project.admin.project_id
-  secret_id = data.google_secret_manager_secret.required_secrets["infra-gemini-api-key"].secret_id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${data.google_service_account.terraform_runner.email}"
-}
+# （旧）Runner SA への Gemini API キー読み取り付与は廃止。
+# AI 要約/検閲は Vertex AI を ADC（roles/aiplatform.user）で呼び出す鍵レス構成へ移行したため、
+# infra-gemini-api-key への secretAccessor 付与は不要（dead grant を撤去・最小権限）。
 
 # GitHub Actions が予算通知用 Webhook URL を読み取れるようにします (403 エラー対策)
 resource "google_secret_manager_secret_iam_member" "runner_billing_slack_accessor" {
