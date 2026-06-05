@@ -1,6 +1,7 @@
 # google-genai: Gemini 呼び出しに使う新SDK（旧 vertexai 生成系の後継）。
 # 旧 google-cloud-aiplatform は移行完了に伴い除去した。
-google-genai
+# 再現性のためバージョンを固定する（protobuf と同流儀＝マイナー許容・次メジャーで止める）。
+google-genai>=2.7.0,<3
 requests
 datadog
 ddtrace
