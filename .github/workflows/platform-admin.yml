@@ -82,7 +82,10 @@ jobs:
   deploy-foundation:
     name: 'Apply Foundation'
     needs: [check-changes, checkov-gate]
-    if: needs.check-changes.outputs.foundation == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch'
+    # GCP 未設定（vars.GCP_PROJECT_ID 空）の環境では deploy を行わない。
+    # WIF 認証に GCP プロジェクトが必須で、未設定だと "projects//..." で auth が cryptic に失敗するため、
+    # 安全に skip する（設定駆動の前提ガード。OSS テンプレ等 GCP 非接続リポでも CI が緑になる）。
+    if: vars.GCP_PROJECT_ID != '' && (needs.check-changes.outputs.foundation == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -124,7 +127,8 @@ jobs:
     name: 'Apply Factory'
     needs: [check-changes, checkov-gate, deploy-foundation]
     # 💡 インベントリ変更時も確実に実行されるよう条件を網羅
-    if: always() && !cancelled() && (needs.check-changes.outputs.factory == 'true' || needs.check-changes.outputs.inventory_changed == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
+    # GCP 未設定（vars.GCP_PROJECT_ID 空）なら deploy しない（deploy-foundation と同じ前提ガード）。
+    if: always() && !cancelled() && vars.GCP_PROJECT_ID != '' && (needs.check-changes.outputs.factory == 'true' || needs.check-changes.outputs.inventory_changed == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     defaults:
       run:
