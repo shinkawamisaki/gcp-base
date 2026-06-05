@@ -111,7 +111,7 @@ gcp-base/
    ./scripts/bootstrap.sh
    ./scripts/setup_secrets.sh
    ```
-   ※ `setup_secrets.sh` を実行すると、Slack Webhook URL や Gemini API キーの入力を求められます。
+   ※ `setup_secrets.sh` を実行すると、Slack Webhook URL 等の入力を求められます（AI 機能は Vertex AI の ADC 認証を使うため、Gemini API キーは不要です）。
 4. **Git フックの有効化**: gitleaks（シークレット検知）と Checkov（Terraform 静的解析）をコミット前にローカルで実行するため、以下のコマンドを実行します。
    ```bash
    git config core.hooksPath .githooks
