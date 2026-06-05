@@ -53,10 +53,18 @@ variable "slack_secret_name" {
   type        = string
 }
 
-variable "gemini_api_key_secret_name" {
-  description = "Gemini API キーを格納しているシークレット名"
+# Vertex AI 経由で Gemini を呼ぶため、API キー（Secret Manager）は不要になった。
+# 認証は監査 SA の ADC（IAM: roles/aiplatform.user）で行う。
+variable "vertex_location" {
+  description = "Vertex AI のロケーション（Gemini 呼び出し先リージョン）。Vertex 対応リージョンを指定すること（例: asia-northeast1）"
   type        = string
-  default     = "infra-gemini-api-key"
+  default     = "asia-northeast1"
+}
+
+variable "gemini_model" {
+  description = "AI 要約に使用する Gemini モデル ID"
+  type        = string
+  default     = "gemini-2.5-flash"
 }
 
 variable "sandbox_slack_secret_name" {

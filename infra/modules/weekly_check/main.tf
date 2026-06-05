@@ -208,14 +208,16 @@ resource "google_storage_bucket_iam_member" "audit_sa_report_admin" {
   member = "serviceAccount:${google_service_account.audit_sa.email}"
 }
 
-# 権限: シークレット & フォルダ閲覧
-resource "google_secret_manager_secret_iam_member" "audit_sa_gemini_key" {
-  project   = var.admin_project_id
-  secret_id = var.gemini_api_key_secret_name
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.audit_sa.email}"
+# 権限: Vertex AI 経由で Gemini を呼び出す（AI 要約用）。
+# 旧来の Gemini API キー（Secret Manager）方式を廃止し、SA の ADC で認証する。
+# これにより長命な API キーを排除し、最小権限（aiplatform.user のみ）で AI を利用する。
+resource "google_project_iam_member" "audit_sa_vertex_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.audit_sa.email}"
 }
 
+# 権限: シークレット & フォルダ閲覧
 resource "google_secret_manager_secret_iam_member" "audit_sa_slack_webhook" {
   project   = var.admin_project_id
   secret_id = var.slack_secret_name
@@ -264,7 +266,9 @@ resource "google_cloudfunctions2_function" "weekly_audit_func" {
       APP_NAME          = var.app_name
       ENABLE_AI_SUMMARY = var.enable_ai_summary ? "true" : "false"
       SLACK_SECRET_NAME = var.slack_secret_name
-      GEMINI_SECRET_NAME = var.gemini_api_key_secret_name
+      # Vertex AI（Gemini）呼び出し設定。API キーは廃止し、ロケーションとモデルのみ渡す。
+      VERTEX_LOCATION   = var.vertex_location
+      GEMINI_MODEL      = var.gemini_model
       SANDBOX_SLACK_SECRET_NAME = var.sandbox_slack_secret_name
       SECRET_PROJECT_ID = var.admin_project_id
       REPORT_BUCKET     = google_storage_bucket.audit_reports.name

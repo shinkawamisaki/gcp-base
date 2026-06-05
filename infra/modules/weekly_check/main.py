@@ -4,6 +4,9 @@ from datetime import datetime, timedelta
 from google.cloud import compute_v1, storage, iam_admin_v1, resourcemanager_v3, secretmanager_v1
 from google.api_core import exceptions as gcp_exceptions
 from googleapiclient import discovery
+# AI 要約は Vertex AI 経由で Gemini を呼ぶ（API キー不要・SA の ADC で認証）。
+from google import genai
+from google.genai import types
 
 def run_security_check(event, context):
     """メイン実行関数 (Pub/Sub トリガー)"""
@@ -187,7 +190,12 @@ def run_security_check(event, context):
                         counts["High"] += 1
             except Exception as e:
                 err_str = str(e)
-                if "403" in err_str or "PERMISSION_DENIED" in err_str:
+                if "SERVICE_DISABLED" in err_str or "has not been used in project" in err_str:
+                    # API 自体が無効＝リソースは存在し得ない（スキャン対象なし）。権限不足
+                    # ではないので ⚠️ 警告にせず「対象外」とする（誤警報・アラート疲れの回避）。
+                    print(f"[INFO] {pj} ⑤SQL: API無効のため対象外 (sqladmin.googleapis.com 無効)")
+                    report_chunk += "| 対象外（API無効） | – | – |\n"
+                elif "403" in err_str or "PERMISSION_DENIED" in err_str:
                     print(f"[WARN] {pj} ⑤SQL: 権限不足のためスキップ (cloudsql.instances.list)")
                     report_chunk += "| ⚠️ 権限不足のためスキャン不可 | – | – |\n"
                 else:
@@ -211,7 +219,12 @@ def run_security_check(event, context):
                         counts["High"] += 1
             except Exception as e:
                 err_str = str(e)
-                if "403" in err_str or "PERMISSION_DENIED" in err_str:
+                if "SERVICE_DISABLED" in err_str or "has not been used in project" in err_str:
+                    # apikeys API が無効＝API キーは作成され得ない（スキャン対象なし）。権限不足
+                    # ではないので ⚠️ 警告にせず「対象外」とする（誤警報・アラート疲れの回避）。
+                    print(f"[INFO] {pj} ⑥APIKeys: API無効のため対象外 (apikeys.googleapis.com 無効)")
+                    report_chunk += "| 対象外（API無効） | – | – |\n"
+                elif "403" in err_str or "PERMISSION_DENIED" in err_str:
                     print(f"[WARN] {pj} ⑥APIKeys: 権限不足のためスキップ (apikeys.keys.list)")
                     report_chunk += "| ⚠️ 権限不足のためスキャン不可 | – | – |\n"
                 else:
@@ -319,9 +332,7 @@ def run_security_check(event, context):
         # ① セキュリティ監査結果 (AI要約版)
         ai_comment = "AI要約をスキップしました。"
         if enable_ai:
-            gemini_secret = os.environ.get('GEMINI_SECRET_NAME', 'infra-gemini-api-key')
-            key = get_secret(admin_pj, gemini_secret)
-            if key: ai_comment = get_ai_summary(key, raw_report)
+            ai_comment = get_ai_summary(raw_report)
 
         summary_text = f"*📊 セキュリティサマリー*\n- 🔴 Critical: {counts['Critical']} 件\n- 🟠 High: {counts['High']} 件\n- 🟡 Medium: {counts['Medium']} 件\n- 🔵 Low: {counts['Low']} 件\n\n"
         security_msg = f"{ai_comment}\n\n{summary_text}🔗 *詳細レポート (GCPコンソールで確認)*\n{report_link}"
@@ -370,25 +381,33 @@ def get_secret(pj, name):
         print("Security Notice: シークレットの取得に失敗しました")
         return None
 
-def get_ai_summary(api_key, text):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+def get_ai_summary(text):
+    # Vertex AI 経由で Gemini を呼ぶ。API キーを Secret Manager で持ち回らず、
+    # 監査 SA の ADC（IAM: roles/aiplatform.user）で認証する。
+    # これにより「長命な API キー」という資格情報そのものを排除でき、
+    # VPC-SC / データレジデンシー / Cloud Audit Logs といった
+    # 組織ガバナンス（IPO 監査・最小権限）にも準拠する。
+    project = os.environ.get('PROJECT_ID')
+    location = os.environ.get('VERTEX_LOCATION', 'asia-northeast1')
+    model = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
     sys_prompt = (
         "あなたは客観的ですが、冒頭に一言だけ親しみやすい挨拶を添えるセキュリティ監査員です。以下の指示を厳守してください:\n"
         "1. 冒頭に、季節に合わせた短い挨拶（例：もうすっかり春ですね、など）や『お疲れ様です！監査レポートをお届けします』といった、一言だけ柔らかい挨拶を必ず含めてください。\n"
         "2. 渡されたデータの🚨や⚠️の項目のみを抽出し『### 🔴 今すぐ対応（Top5）』を作成してください。不備がなければ『現在、緊急の対応を要する不備は検出されていません。』と書いてください。\n"
         "3. 最後に『📝 総評』を2行以内で記述してください。"
     )
-    payload = {"contents": [{"parts": [{"text": f"{sys_prompt}\n\n監査対象データ:\n\n{text}"}]}]}
     try:
-        res = requests.post(url, json=payload, timeout=60)
-        res.raise_for_status()
-        return res.json()['candidates'][0]['content']['parts'][0]['text']
-    except requests.exceptions.Timeout:
-        print("[ERROR] Gemini API タイムアウト (60s)")
-        return "Gemini 解析エラーが発生しました。(タイムアウト)"
-    except requests.exceptions.RequestException as e:
-        print(f"[ERROR] Gemini API リクエスト失敗: {e}")
-        return "Gemini 解析エラーが発生しました。"
-    except (KeyError, IndexError) as e:
-        print(f"[ERROR] Gemini API レスポンス形式が不正: {e}")
+        client = genai.Client(vertexai=True, project=project, location=location)
+        res = client.models.generate_content(
+            model=model,
+            contents=f"監査対象データ:\n\n{text}",
+            config=types.GenerateContentConfig(
+                system_instruction=sys_prompt,
+                http_options=types.HttpOptions(timeout=60_000),  # 60s（ミリ秒指定）
+            ),
+        )
+        return res.text
+    except Exception:
+        # §5(情報保護): 例外の詳細（スタックトレース等）はログに出さず抽象化する。
+        print("[ERROR] Vertex AI (Gemini) 呼び出しに失敗しました")
         return "Gemini 解析エラーが発生しました。"
