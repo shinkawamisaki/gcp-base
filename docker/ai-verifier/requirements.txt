@@ -8,7 +8,8 @@ datadog
 ddtrace
 google-cloud-storage
 google-cloud-secret-manager
-# protobuf: 推移依存（grpcio / google-api-core 経由）。旧 aiplatform が 6.33.x に
-# 拘束していたが、その除去で 7.x に浮き、GHSA-7gcm-g887-7qv7（再帰によるDoS）の
-# 安全圏を外れる恐れがある。安全圏かつ google-genai 2.7.0 と実績のある 6.33.x に固定する。
+# protobuf: 推移依存（grpcio / google-api-core 経由）。
+# GHSA-7gcm-g887-7qv7（JSON再帰によるDoS）の影響範囲は <5.29.6 と 6.30.0rc1〜6.33.5未満 のみで、
+# 6.33.5 が当系列の修正版（=安全）。7.x は影響範囲外（OSV.dev で確認・2026-06-07時点）。
+# したがって <7 に絞る理由はセキュリティではなく、google-genai 2.7.0 と実績のある互換維持（次メジャー取り込み回避）。
 protobuf>=6.33.5,<7

@@ -1,6 +1,10 @@
-google-cloud-resource-manager
-google-cloud-secret-manager
-google-api-python-client
-requests
-PyJWT
-cryptography
+# 下限ピン: 未固定だとビルド時に何が入るか不定で再現性がなく、JWT署名/検証を担う
+# 当モジュールでは脆弱版が混入するサプライチェーンリスクになる。
+# セキュリティ枢要な3つは OSV.dev で「既知CVEがクリーンになる最小版」を実照会して下限を決定（2026-06-07時点）。
+# google-cloud系は既知CVEなし。weekly_check の requirements.txt と下限を揃える。
+google-cloud-resource-manager>=1.10.0
+google-cloud-secret-manager>=2.16.0
+google-api-python-client>=2.0.0
+requests>=2.33.0     # 2.32.4 は GHSA-gc5v-m9x4-r6x2(MODERATE) 残、2.33.0 でクリーン
+PyJWT>=2.13.0        # 2.12.x まで GHSA-752w-5fwx-jx9f(HIGH) 残、2.13.0 でクリーン
+cryptography>=47.0.0 # 46.x まで GHSA-r6ph-v2qm-q3c2(HIGH/subgroup攻撃) 残、47.0.0 でクリーン
