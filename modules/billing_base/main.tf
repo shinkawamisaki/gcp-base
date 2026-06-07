@@ -188,7 +188,8 @@ resource "time_sleep" "wait_for_notifier_iam" {
     google_service_account_iam_member.build_acts_as_notifier,
     google_project_iam_member.build_gcs_admin_restricted,
     google_project_iam_member.build_system_storage_viewer,
-    google_secret_manager_secret_iam_member.notifier_secret_accessor
+    google_secret_manager_secret_iam_member.notifier_secret_accessor,
+    google_storage_bucket_iam_member.notifier_markers_rw
   ]
   create_duration = "120s"
 }
@@ -224,6 +225,8 @@ resource "google_cloudfunctions2_function" "budget_notifier" {
       SLACK_SECRET_ID         = var.slack_secret_name
       PROJECT_ID              = var.project_id
       GCP_CONSOLE_URL_BILLING = var.gcp_console_billing_url_template
+      # 重複抑制マーカーの保存先（OPS-007）。未設定ならデデュープせず通知側へ倒す（fail-open）。
+      MARKER_BUCKET = google_storage_bucket.billing_notify_markers.name
     }
   }
 
@@ -277,6 +280,43 @@ resource "google_storage_bucket" "function_source_bucket" {
   # checkov:skip=CKV_GCP_62: "Source bucket does not need access logging"
   # checkov:skip=CKV_GCP_78: "Source bucket does not need versioning"
   # checkov:skip=CKV_GCP_114: "Source bucket has uniform access, explicit public prevention is not strict here"
+}
+
+# --- 5-2. 予算通知の重複抑制（デデュープ）マーカー用バケット ---
+# 【なぜ専用バケットか】（既存バケットへの相乗りにしない理由）
+#   1. 最小権限: 通知 SA の GCS 権限を「このバケットだけ」に閉じる。既存バケットは tfstate・
+#      ソース・監査ログ等の永続/高価値データで、そこへ write を与えるのは過剰付与・被害半径拡大。
+#   2. データクラス分離: マーカーは「消えても重複1回で済む」揮発・再構築可能な低価値 state（OPS-007）。
+#      永続・append-only な証跡とはライフサイクル方針が正反対のため同居させない。
+#   3. 安全な TTL: 下記 lifecycle（35日で自動削除）は「マーカーしか入らない」前提でのみ安全に掛けられる。
+#   ※ 将来この目的でバケットを既存へ統合（"整理"）しないこと。上記3点が崩れる。
+resource "google_storage_bucket" "billing_notify_markers" {
+  project                     = var.project_id
+  name                        = "${var.project_id}-billing-notify-markers"
+  location                    = var.region
+  force_destroy               = true
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+
+  # マーカーは期間×閾値ごとの「通知済み」印。古いものは溜めず自動失効させる。
+  lifecycle_rule {
+    action {
+      type = "Delete"
+    }
+    condition {
+      age = 35
+    }
+  }
+
+  # checkov:skip=CKV_GCP_62: "Ephemeral dedup markers do not need access logging"
+  # checkov:skip=CKV_GCP_78: "Ephemeral dedup markers are reconstructible; versioning is unnecessary and conflicts with TTL deletion"
+}
+
+# 最小権限: 通知 SA が「このマーカーバケットだけ」を読み書きできるよう、バケット単位で付与する。
+resource "google_storage_bucket_iam_member" "notifier_markers_rw" {
+  bucket = google_storage_bucket.billing_notify_markers.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.budget_notifier_sa.email}"
 }
 
 data "archive_file" "source" {
