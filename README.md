@@ -112,6 +112,11 @@ gcp-base/
    ./scripts/setup_secrets.sh
    ```
    ※ `setup_secrets.sh` を実行すると、Slack Webhook URL 等の入力を求められます（AI 機能は Vertex AI の ADC 認証を使うため、Gemini API キーは不要です）。
+   > **💰 AI 機能のコスト・リージョンについて**
+   > 監査Bot の脅威 Top5 要約と PR 検閲は **Vertex AI (Gemini)** を利用するため、実行に応じた**課金が発生します**（キーレスの ADC 認証・`roles/aiplatform.user`）。導入前に以下を確認してください（いずれも `weekly_check` モジュールの terraform 変数で調整します）。
+   > - **モデル / リージョンは変更可能**: 既定はモデル `gemini-2.5-flash`（低コスト帯）・リージョン `asia-northeast1`。データレジデンシーや課金要件に応じて変数 `gemini_model` / `vertex_location` で上書きできます（Cloud Function の `GEMINI_MODEL` / `VERTEX_LOCATION` 環境変数に反映されます）。
+   > - **コストを抑えたい / AI 不要な場合**: 変数 `enable_ai_summary = false` で AI 要約を無効化できます（スキャン①〜⑨や Slack 通知は動作し、AI 要約だけ省略）。
+   > - **呼び出し頻度は低め**: 監査Bot は既定で**週次**実行のため、標準的な利用なら `gemini-2.5-flash` で少額に収まります（実コストは利用リージョンの Vertex AI 料金に従います）。
 4. **Git フックの有効化**: gitleaks（シークレット検知）と Checkov（Terraform 静的解析）をコミット前にローカルで実行するため、以下のコマンドを実行します。
    ```bash
    git config core.hooksPath .githooks
