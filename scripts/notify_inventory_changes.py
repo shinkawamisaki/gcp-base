@@ -48,7 +48,8 @@ def get_inventory(file_name):
                 # §5: 詳細は出さない。台帳が存在するのに壊れている＝重大なので
                 # 空台帳（＝差分なし）と取り違えず、握り潰さず失敗させる（fail-loud）。
                 print(f"[ERROR] inventory ファイルの解釈に失敗しました（破損の可能性）: {path}")
-                raise RuntimeError(f"inventory ファイルが壊れています: {path}")
+                # §5: from None で例外連結を遮断し、元例外（パス内容等）がトレースに漏れるのを防ぐ。
+                raise RuntimeError(f"inventory ファイルが壊れています: {path}") from None
     return {"apps": {}, "sandboxes": {}}
 
 def set_github_variable(token, repo, var_name, value):
@@ -83,7 +84,8 @@ def notify_slack(webhook_url, text):
         # §5: 例外詳細（webhook URL を含み得る）は出さない。未達を握り潰さず明示し、
         # クリーンな例外で再送出して CI を失敗させる（「失敗通知の沈黙」を断つ）。
         print("[ERROR] Slack 通知の送信に失敗しました（詳細は非表示）")
-        raise RuntimeError("Slack 通知の送信に失敗しました")
+        # §5: from None で例外連結を遮断し、元例外（webhook URL 等）がトレースに漏れるのを防ぐ。
+        raise RuntimeError("Slack 通知の送信に失敗しました") from None
 
 def main():
     projects_json_str = os.environ.get('PROJECTS_JSON', '{}')
