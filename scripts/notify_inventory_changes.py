@@ -45,7 +45,11 @@ def get_inventory(file_name):
                 with open(path, 'r') as f:
                     return json.load(f)
             except Exception:
-                continue
+                # §5: 詳細は出さない。台帳が存在するのに壊れている＝重大なので
+                # 空台帳（＝差分なし）と取り違えず、握り潰さず失敗させる（fail-loud）。
+                print(f"[ERROR] inventory ファイルの解釈に失敗しました（破損の可能性）: {path}")
+                # §5: from None で例外連結を遮断し、元例外（パス内容等）がトレースに漏れるのを防ぐ。
+                raise RuntimeError(f"inventory ファイルが壊れています: {path}") from None
     return {"apps": {}, "sandboxes": {}}
 
 def set_github_variable(token, repo, var_name, value):
@@ -56,26 +60,41 @@ def set_github_variable(token, repo, var_name, value):
         "Accept": "application/vnd.github.v3+json"
     }
     data = {"name": var_name, "value": str(value)}
-    
-    res = requests.post(url, headers=headers, json=data)
-    if res.status_code in [409, 422]: 
+
+    # timeout を付与し応答遅延時のハングを防ぐ（bandit B113 / CWE-400）。
+    # 同ファイル内の他呼び出し(30s)と統一。
+    res = requests.post(url, headers=headers, json=data, timeout=30)
+    if res.status_code in [409, 422]:
         url_patch = f"{url}/{var_name}"
-        res_patch = requests.patch(url_patch, headers=headers, json=data)
+        res_patch = requests.patch(url_patch, headers=headers, json=data, timeout=30)
         if res_patch.status_code not in [201, 204]:
             raise Exception(f"Failed to update variable {var_name}: {res_patch.status_code}")
     elif res.status_code != 201:
-        raise Exception(f"Failed to create variable {var_name}: {res.status_code} {res.text}")
+        # §5: レスポンス本文は出さない（API ボディに内部情報が載り得る）。
+        raise Exception(f"Failed to create variable {var_name}: {res.status_code}")
 
 def notify_slack(webhook_url, text):
-    if not webhook_url: return
+    if not webhook_url:
+        print("[WARN] Slack webhook URL が未設定のため通知をスキップします。")
+        return
     try:
-        requests.post(webhook_url, json={"text": text}, timeout=30)
-    except Exception as e:
-        print(f"Error sending Slack: {e}")
+        resp = requests.post(webhook_url, json={"text": text}, timeout=30)
+        resp.raise_for_status()
+    except Exception:
+        # §5: 例外詳細（webhook URL を含み得る）は出さない。未達を握り潰さず明示し、
+        # クリーンな例外で再送出して CI を失敗させる（「失敗通知の沈黙」を断つ）。
+        print("[ERROR] Slack 通知の送信に失敗しました（詳細は非表示）")
+        # §5: from None で例外連結を遮断し、元例外（webhook URL 等）がトレースに漏れるのを防ぐ。
+        raise RuntimeError("Slack 通知の送信に失敗しました") from None
 
 def main():
     projects_json_str = os.environ.get('PROJECTS_JSON', '{}')
-    projects_data = json.loads(projects_json_str)
+    try:
+        projects_data = json.loads(projects_json_str)
+    except json.JSONDecodeError:
+        # §5: 詳細は出さない。入力が壊れているならトレースバックを撒かず明示して失敗させる。
+        print("[ERROR] 環境変数 PROJECTS_JSON の JSON 解釈に失敗しました（詳細は非表示）")
+        sys.exit(1)
     
     webhook_url = os.environ.get('SLACK_WEBHOOK_URL')
     deploy_webhook_url = os.environ.get('DEPLOY_SLACK_WEBHOOK_URL')
@@ -147,8 +166,10 @@ def main():
                 
                 sync_results["success_admin"].append("\n".join(app_info_admin))
                 sync_results["success_dev"].append("\n".join(app_info_dev))
-            except Exception as e:
-                sync_results["failed"].append(f"{app_name} ({e})")
+            except Exception:
+                # §5: 例外詳細(API レスポンス等)を Slack に載せない。要確認のみ通知。
+                print(f"[ERROR] {app_name} の変数同期に失敗しました（詳細は非表示）")
+                sync_results["failed"].append(f"`{app_name}` — 変数同期に失敗（要確認）")
 
     # Sandboxes の処理
     for sb_key, config in new_inv.get('sandboxes', {}).items():
@@ -185,8 +206,9 @@ def main():
                     f"※ 期限を過ぎると自動削除されます。延長は台帳の `expiry_date` を更新してください。"
                 )
                 sync_results["success_dev"].append(msg_sb)
-            except Exception as e:
-                sync_results["failed"].append(f"{sb_key} ({e})")
+            except Exception:
+                print(f"[ERROR] サンドボックス {sb_key} の変数同期に失敗しました（詳細は非表示）")
+                sync_results["failed"].append(f"`{sb_key}` — 変数同期に失敗（要確認）")
 
     # Slack まとめ報告
     if sync_results["success_admin"] or sync_results["failed"]:

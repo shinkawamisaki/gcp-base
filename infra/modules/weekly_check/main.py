@@ -35,7 +35,7 @@ def run_security_check(event, context):
             except gcp_exceptions.PermissionDenied:
                 print(f"[WARN] Folder {folder_id}: 権限不足のためスキップ (resourcemanager.projects.list)")
             except Exception as e:
-                print(f"[ERROR] Folder {folder_id}: スキャン失敗: {e}")
+                print(f"[ERROR] Folder {folder_id}: スキャン失敗（詳細は非表示）")
 
         if not projects:
             # フォルダIDがない、または空の場合はラベルで検索 (フォールバック)
@@ -65,7 +65,7 @@ def run_security_check(event, context):
                         if today + timedelta(hours=48) >= expiry_dt:
                             warning_projects.append(f"{pj} (Owner: {labels.get('owner', 'Unknown')}, Expiry: {expiry})")
                     except ValueError as e:
-                        print(f"[WARN] {pj}: expiry_date のパース失敗 (値: {expiry}): {e}")
+                        print(f"[WARN] {pj}: expiry_date のパース失敗 (値: {expiry}・詳細は非表示)")
 
             report_chunk = f"## Project: {pj}\n\n"
 
@@ -87,7 +87,7 @@ def run_security_check(event, context):
                 print(f"[WARN] {pj} ①Firewall: 権限不足のためスキップ (compute.firewalls.list)")
                 report_chunk += "| ⚠️ 権限不足のためスキャン不可 | – | – | – | – |\n"
             except Exception as e:
-                print(f"[ERROR] {pj} ①Firewall: スキャン失敗: {e}")
+                print(f"[ERROR] {pj} ①Firewall: スキャン失敗（詳細は非表示）")
                 report_chunk += "| ⚠️ スキャンエラー | – | – | – | – |\n"
 
             if fw_count == 0: report_chunk += "| 該当なし | – | – | – | – |\n"
@@ -115,12 +115,12 @@ def run_security_check(event, context):
                     except gcp_exceptions.PermissionDenied:
                         print(f"[WARN] {pj} ②Storage bucket {bucket.name}: IAMポリシー取得権限なし")
                     except Exception as e:
-                        print(f"[ERROR] {pj} ②Storage bucket {bucket.name}: {e}")
+                        print(f"[ERROR] {pj} ②Storage bucket {bucket.name}: スキャン失敗（詳細は非表示）")
             except gcp_exceptions.PermissionDenied:
                 print(f"[WARN] {pj} ②Storage: 権限不足のためスキップ (storage.buckets.list)")
                 report_chunk += "| ⚠️ 権限不足のためスキャン不可 | – | – |\n"
             except Exception as e:
-                print(f"[ERROR] {pj} ②Storage: スキャン失敗: {e}")
+                print(f"[ERROR] {pj} ②Storage: スキャン失敗（詳細は非表示）")
                 report_chunk += "| ⚠️ スキャンエラー | – | – |\n"
 
             if st_count == 0: report_chunk += "| 該当なし | – | – |\n"
@@ -144,7 +144,7 @@ def run_security_check(event, context):
                 print(f"[WARN] {pj} ③IAM: 権限不足のためスキップ (iam.serviceAccounts.list)")
                 report_chunk += "| ⚠️ 権限不足のためスキャン不可 | – | – | – |\n"
             except Exception as e:
-                print(f"[ERROR] {pj} ③IAM: スキャン失敗: {e}")
+                print(f"[ERROR] {pj} ③IAM: スキャン失敗（詳細は非表示）")
                 report_chunk += "| ⚠️ スキャンエラー | – | – | – |\n"
 
             if iam_count == 0: report_chunk += "| 該当なし | – | – | – |\n"
@@ -171,7 +171,7 @@ def run_security_check(event, context):
                 print(f"[WARN] {pj} ④VM: 権限不足のためスキップ (compute.instances.list)")
                 report_chunk += "| ⚠️ 権限不足のためスキャン不可 | – | – | – |\n"
             except Exception as e:
-                print(f"[ERROR] {pj} ④VM: スキャン失敗: {e}")
+                print(f"[ERROR] {pj} ④VM: スキャン失敗（詳細は非表示）")
                 report_chunk += "| ⚠️ スキャンエラー | – | – | – |\n"
 
             if vm_count == 0: report_chunk += "| 該当なし | – | – | – |\n"
@@ -199,7 +199,7 @@ def run_security_check(event, context):
                     print(f"[WARN] {pj} ⑤SQL: 権限不足のためスキップ (cloudsql.instances.list)")
                     report_chunk += "| ⚠️ 権限不足のためスキャン不可 | – | – |\n"
                 else:
-                    print(f"[ERROR] {pj} ⑤SQL: スキャン失敗: {e}")
+                    print(f"[ERROR] {pj} ⑤SQL: スキャン失敗（詳細は非表示）")
                     report_chunk += "| ⚠️ スキャンエラー | – | – |\n"
 
             if sql_count == 0: report_chunk += "| 該当なし | – | – |\n"
@@ -228,7 +228,7 @@ def run_security_check(event, context):
                     print(f"[WARN] {pj} ⑥APIKeys: 権限不足のためスキップ (apikeys.keys.list)")
                     report_chunk += "| ⚠️ 権限不足のためスキャン不可 | – | – |\n"
                 else:
-                    print(f"[ERROR] {pj} ⑥APIKeys: スキャン失敗: {e}")
+                    print(f"[ERROR] {pj} ⑥APIKeys: スキャン失敗（詳細は非表示）")
                     report_chunk += "| ⚠️ スキャンエラー | – | – |\n"
 
             if api_count == 0: report_chunk += "| 該当なし | – | – |\n"
@@ -252,7 +252,7 @@ def run_security_check(event, context):
                 print(f"[WARN] {pj} ⑦DefaultSA: 権限不足のためスキップ (compute.instances.list)")
                 report_chunk += "| ⚠️ 権限不足のためスキャン不可 | – | – | – |\n"
             except Exception as e:
-                print(f"[ERROR] {pj} ⑦DefaultSA: スキャン失敗: {e}")
+                print(f"[ERROR] {pj} ⑦DefaultSA: スキャン失敗（詳細は非表示）")
                 report_chunk += "| ⚠️ スキャンエラー | – | – | – |\n"
 
             if sa_count == 0: report_chunk += "| 該当なし | – | – | – |\n"
@@ -278,7 +278,7 @@ def run_security_check(event, context):
                 print(f"[WARN] {pj} ⑧AuditLogs: 権限不足のためスキップ (resourcemanager.projects.getIamPolicy)")
                 report_chunk += "| ⚠️ 権限不足のためスキャン不可 | – | – |\n"
             except Exception as e:
-                print(f"[ERROR] {pj} ⑧AuditLogs: スキャン失敗: {e}")
+                print(f"[ERROR] {pj} ⑧AuditLogs: スキャン失敗（詳細は非表示）")
                 report_chunk += "| ⚠️ スキャンエラー | – | – |\n"
 
             if log_count == 0: report_chunk += "| 該当なし | – | – |\n"
@@ -302,7 +302,7 @@ def run_security_check(event, context):
                 print(f"[WARN] {pj} ⑨IAP: 権限不足のためスキップ (compute.firewalls.list)")
                 report_chunk += "| ⚠️ 権限不足のためスキャン不可 | – | – | – |\n"
             except Exception as e:
-                print(f"[ERROR] {pj} ⑨IAP: スキャン失敗: {e}")
+                print(f"[ERROR] {pj} ⑨IAP: スキャン失敗（詳細は非表示）")
                 report_chunk += "| ⚠️ スキャンエラー | – | – | – |\n"
 
             if iap_count == 0: report_chunk += "| 該当なし | – | – | – |\n"
@@ -324,7 +324,7 @@ def run_security_check(event, context):
                 )
                 report_link = url_template.format(bucket=report_bucket, filename=filename, project_id=project_id)
             except Exception as e:
-                print(f"[ERROR] GCSへのレポートアップロード失敗: {e}")
+                print("[ERROR] GCSへのレポートアップロード失敗（詳細は非表示）")
                 report_link = "N/A (Upload Failed)"
 
         # --- 2. 各チャンネルへの通知実行 ---
@@ -342,7 +342,7 @@ def run_security_check(event, context):
             try:
                 requests.post(slack_url, json={"text": security_msg}, timeout=30)
             except requests.exceptions.RequestException as e:
-                print(f"[ERROR] Slack通知失敗 (audit): {e}")
+                print("[ERROR] Slack通知失敗 (audit・詳細は非表示)")
 
         # ② サンドボックス削除予告・報告
         if deleted_projects or warning_projects:
@@ -359,10 +359,22 @@ def run_security_check(event, context):
                 try:
                     requests.post(target_url, json={"text": msg_body}, timeout=30)
                 except requests.exceptions.RequestException as e:
-                    print(f"[ERROR] Slack通知失敗 (sandbox): {e}")
+                    print("[ERROR] Slack通知失敗 (sandbox・詳細は非表示)")
 
-    except Exception as e:
-        print(f"[ERROR] 監査プロセス全体で予期しないエラー: {e}")
+    except Exception:
+        # dead-man's-switch: 監査Botが落ちたら「沈黙＝健全」と誤解されないよう、
+        # best-effort で Slack に失敗を叫んでから raise（関数を失敗扱いにし監視に乗せる）。§5 で詳細は出さない。
+        print("[ERROR] 監査プロセス全体で予期しないエラーが発生しました（詳細は非表示）")
+        try:
+            alert_url = get_secret(admin_pj, os.environ.get('SLACK_SECRET_NAME', 'infra-audit-slack-webhook'))
+            if alert_url:
+                requests.post(
+                    alert_url,
+                    json={"text": "🚨 *[要確認] 週次セキュリティ監査 Bot が異常終了しました*\nログを確認してください（監査レポートが生成/送信されていない可能性があります）。"},
+                    timeout=30,
+                )
+        except Exception:
+            print("[ERROR] 失敗アラートの Slack 通知にも失敗しました（詳細は非表示）")
         raise
 
 def get_secret(pj, name):

@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# 異常系の確実なクリーンアップ: set -e による早期 exit でも、ローカルに残った
+# 一時ファイル（org-policy 定義・GCS へ退避するメタデータ/監査ログ。内部情報を含み得る）を
+# 必ず削除する。成功パスの明示 rm と二重になるが rm -f は冪等で無害。
+# trap 自体が失敗して本処理の終了コードを汚さないよう 2>/dev/null || true で保護。
+trap 'rm -f policy_net.yaml policy_ip.yaml bootstrap_metadata.json bootstrap_audit_log_*.json 2>/dev/null || true' EXIT
+
 # ==============================================================================
 # GCP-base: Bootstrap Script 
 # 
@@ -93,7 +99,9 @@ for i in $(seq 1 $MAX_RETRIES); do
   
   if [ $i -eq $MAX_RETRIES ]; then
     echo -e "${RED}[ERROR] 請求アカウントの紐付けに失敗しました。${NC}"
-    echo -e "${RED}生のエラー内容: $ERROR_MSG${NC}"
+    # §5: 生のエラー出力（請求アカウントID等の内部情報を含み得る）はログに出さず抽象化する。
+    # 詳細は実行端末の権限で `gcloud billing projects link` を手動実行して確認する運用とする。
+    echo -e "${RED}  権限・請求アカウントID・対象APIの有効化状態を確認してください（詳細はマスク）。${NC}"
   else
     echo -e "${YELLOW}  - 反映待ち... リトライ中 ($i/$MAX_RETRIES)...${NC}"
     sleep 20
