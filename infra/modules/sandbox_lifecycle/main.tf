@@ -290,11 +290,13 @@ resource "google_pubsub_topic" "lifecycle_trigger" {
 }
 
 resource "google_cloud_scheduler_job" "lifecycle_schedule" {
-  name             = "hourly-sandbox-lifecycle-job"
-  project          = var.project_id
-  region           = var.region
-  schedule         = "0 * * * *"
-  time_zone        = "Asia/Tokyo"
+  # ジョブ名は実行頻度に依存させない（var.lifecycle_schedule で頻度を変えても名前が嘘にならないよう "hourly" を排除）。
+  name    = "sandbox-lifecycle-job"
+  project = var.project_id
+  region  = var.region
+  # 既定は日次・朝7時（"0 7 * * *"）。expiry は日単位のため毎時実行は不要。詳細は variables.tf を参照。
+  schedule  = var.lifecycle_schedule
+  time_zone = "Asia/Tokyo"
 
   pubsub_target {
     topic_name = google_pubsub_topic.lifecycle_trigger.id

@@ -38,3 +38,14 @@ variable "github_token_secret_name" {
   type        = string
   default     = "infra-github-token"
 }
+
+variable "lifecycle_schedule" {
+  description = <<-EOT
+    サンドボックスのライフサイクルチェック（期限切れ削除トリガー＋カウントダウン警告通知）の実行スケジュール（cron 形式・time_zone は Asia/Tokyo）。
+    既定は日次・朝7時（"0 7 * * *"）。expiry_date は日単位（YYYY-MM-DD）のため判定は日付境界でしか変わらず、毎時実行は不要。
+    朝7時は (1) 期限切れ削除を当日中に確実に実行しつつ、(2) 「あと N 日」の警告 Slack を始業前に人へ届けるための既定値。
+    注意: 警告通知は「実行ごと」に送られる設計のため、頻度を上げる（例: 毎時）と警告も同回数だけ送られる（日次運用前提）。
+  EOT
+  type        = string
+  default     = "0 7 * * *"
+}

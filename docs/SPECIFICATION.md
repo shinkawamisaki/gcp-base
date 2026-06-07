@@ -31,7 +31,7 @@
 ### 2.1 台帳同期型・自動削除フロー (GitOps Cleanup)
 ボットによる物理削除の直接実行を廃止し、以下の 4 ステップで削除を完遂します。
 
-1.  **検知**: `sandbox_lifecycle` ボットが 1時間おきに稼働。ラベル `expiry_date` を現在時刻と比較。
+1.  **検知**: `sandbox_lifecycle` ボットが日次で稼働（既定 朝7時 JST。`lifecycle_schedule` 変数で変更可）。ラベル `expiry_date`（日単位 `YYYY-MM-DD`）を現在日付と比較。同じ実行で「あと N 日」のカウントダウン警告も始業前に通知する。
 2.  **削除依頼 (Slack & GitHub)**: 期限切れを検知すると、ボットが Slack に「自動クリーンアップ開始」を通知し、GitHub API を叩いて `platform-delete-sandbox.yml` を起動。
     - **認証**: **GitHub App** による Installation Access Token (IAT) を使用（PAT からの移行により、特定リポジトリへの最小権限アクセスを実現）。
 3.  **台帳更新**: ワークフローが `inventory.json` から当該サンドボックスの定義を自動削除し、`main` に Push。

@@ -22,8 +22,9 @@ class GitHubAppAuth:
         }
         try:
             encoded_jwt = jwt.encode(payload, self.private_key, algorithm="RS256")
-        except Exception as e:
-            print(f"JWT encoding error: {e}")
+        except Exception:
+            # §5: 例外詳細（鍵情報を含み得る）はログに出さず抽象化する。
+            print("[ERROR] GitHub App 用 JWT の生成に失敗しました（詳細は非表示）")
             raise
 
         # 2. Installation Access Token (IAT) を取得
@@ -58,9 +59,12 @@ def run_lifecycle_check(event, context):
         deleted_projects = []
         final_warnings = []
         daily_warnings = []
+        skipped_deletions = []   # app_base ラベル欠落等で自動削除をスキップ（要手動確認）
+        failed_deletions = []    # 削除ワークフロー起動に失敗（沈黙させず通知に載せる）
         
+        # 本ジョブは日次運用前提（既定 schedule は朝7時 / var.lifecycle_schedule）。
+        # 期限切れ削除も警告通知も「実行ごと」に1回行うため、実行時刻でのゲートは設けない。
         now_jst = datetime.utcnow() + timedelta(hours=9)
-        current_hour = now_jst.hour
 
         for project in projects:
             pj = project.project_id
@@ -78,22 +82,27 @@ def run_lifecycle_check(event, context):
                 owner = labels.get('owner', '不明')
                 diff_days = (expiry_dt.date() - now_jst.date()).days
                 
-                # 始業前（朝7時台）のカウントダウン通知
-                if current_hour == 7:
-                    if diff_days == 0:
-                        final_warnings.append(f"・`{pj}` (所有者: {owner}, 期限: {expiry})")
-                    elif 0 < diff_days <= 3:
-                        daily_warnings.append(f"・`{pj}` (所有者: {owner}, 期限: {expiry}) - ⚠️ あと {diff_days} 日")
+                # カウントダウン通知（始業前に届くよう既定スケジュールは朝7時）。
+                # 日次1回実行が前提なので時刻ゲートは不要。頻度を上げると警告も同回数送られる点に注意。
+                if diff_days == 0:
+                    final_warnings.append(f"・`{pj}` (所有者: {owner}, 期限: {expiry})")
+                elif 0 < diff_days <= 3:
+                    daily_warnings.append(f"・`{pj}` (所有者: {owner}, 期限: {expiry}) - ⚠️ あと {diff_days} 日")
 
                 # 期限切れの物理削除トリガー
                 if diff_days <= 0:
+                    # fail-closed: 削除対象キーを ID から推測しない（不可逆な削除で推測は誤削除の温床）。
+                    # app_base ラベルが無いサンドボックスは自動削除せずスキップし、警告に積む。
+                    sandbox_key = labels.get('app_base')
+                    if not sandbox_key:
+                        print(f"[WARN] {pj}: app_base ラベル欠落のため自動削除をスキップ（要手動確認）")
+                        skipped_deletions.append(f"・`{pj}` (所有者: {owner}, 期限: {expiry}) — app_base ラベル欠落のため自動削除をスキップ")
+                        continue
+
                     try:
                         print(f"Triggering cleanup for expired sandbox: {pj}")
-                        sandbox_key = labels.get('app_base')
-                        if not sandbox_key:
-                            parts = pj.split('-')
-                            sandbox_key = f"{parts[2]}-{parts[3]}" if len(parts) >= 4 else pj.replace('dev-sandbox-', '')
-                        
+                        # sandbox_key は app_base ラベルから取得済み（推測しない）。
+
                         # 1. まず既存の PAT を試行
                         gh_token = get_secret(admin_pj, os.environ.get('GH_TOKEN_SECRET_NAME', 'infra-github-token'))
                         
@@ -125,20 +134,31 @@ def run_lifecycle_check(event, context):
                                 print(f"Successfully triggered deletion workflow for {sandbox_key}")
                                 deleted_projects.append(f"・`{pj}` (所有者: {owner}, 期限: {expiry})")
                             else:
-                                print(f"Failed to trigger GitHub Actions: {res.status_code} {res.text}")
+                                # §5: レスポンス本文は出さない。失敗は握り潰さず通知に載せる。
+                                print(f"[ERROR] 削除ワークフローの起動に失敗 (status={res.status_code}・詳細は非表示)")
+                                failed_deletions.append(f"・`{pj}` (所有者: {owner}) — 削除ワークフローの起動失敗 (status={res.status_code})")
                         else:
-                            print(f"ERROR: GitHub config missing or invalid. gh_token present: {gh_token is not None}")
+                            # GitHub 設定/トークン欠落で削除をトリガーできない。沈黙させず通知に載せる。
+                            print("[ERROR] GitHub 設定またはトークンが欠落しており削除をトリガーできません（詳細は非表示）")
+                            failed_deletions.append(f"・`{pj}` (所有者: {owner}) — GitHub 設定/トークン欠落で削除トリガー不可")
 
-                    except Exception as e:
-                        print(f"ERROR: Failed to process cleanup for project (...{pj[-4:] if pj else 'N/A'}): {e}")
+                    except Exception:
+                        # §5: 例外詳細は出さず抽象化。削除の失敗を握り潰さず通知に載せる。
+                        print(f"[ERROR] サンドボックス削除処理に失敗 (...{pj[-4:] if pj else 'N/A'}・詳細は非表示)")
+                        failed_deletions.append(f"・`{pj}` (所有者: {owner}) — 削除処理が例外で失敗（要確認）")
             
-            except Exception as e:
-                print(f"Date parse error in {pj}: {e}")
+            except Exception:
+                # §5: 例外詳細は出さず抽象化。expiry_date が不正で評価不能なサンドボックスは
+                # 自動削除せず（fail-closed）スキップ扱いで通知に載せる。
+                print(f"[WARN] {pj}: expiry_date ラベルの解釈に失敗（自動削除せずスキップ・要確認）")
+                skipped_deletions.append(f"・`{pj}` (期限ラベル: {expiry}) — expiry_date が不正で評価不能")
 
         # Slack 通知
-        if deleted_projects or final_warnings or daily_warnings:
+        if deleted_projects or final_warnings or daily_warnings or skipped_deletions or failed_deletions:
             slack_url = get_secret(admin_pj, slack_secret)
-            if not slack_url: return
+            if not slack_url:
+                # 通知経路が確保できないのに削除等が走った可能性 → 沈黙させず関数を失敗扱いにする。
+                raise RuntimeError("Slack webhook の取得に失敗し、ライフサイクル通知を送信できません")
 
             blocks = [{"type": "header", "text": {"type": "plain_text", "text": "📦 サンドボックス・ライフサイクル管理"}}]
             if deleted_projects:
@@ -146,18 +166,36 @@ def run_lifecycle_check(event, context):
                     "type": "section",
                     "text": {"type": "mrkdwn", "text": "🗑️ *期限切れのため自動クリーンアップを開始したサンドボックス*\n" + "\n".join(deleted_projects) + "\n\n> ※ 台帳（`inventory.json`）から削除されました。この後 Terraform によりリソースが物理的に消去されます。"}
                 })
+            if failed_deletions:
+                blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "🚨 *【要対応】自動削除のトリガーに失敗したサンドボックス*\n" + "\n".join(failed_deletions)}})
+            if skipped_deletions:
+                blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "⚠️ *【要手動確認】ラベル不備で自動削除をスキップしたサンドボックス*\n" + "\n".join(skipped_deletions)}})
             if final_warnings:
                 blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "🚨 *【最終警告】本日のうちに削除が開始されます！*\n" + "\n".join(final_warnings)}})
             if daily_warnings:
                 blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "⚠️ *削除期限が近づいています (3日以内)*\n" + "\n".join(daily_warnings)}})
 
-            requests.post(slack_url, json={"blocks": blocks}, timeout=30)
+            resp = requests.post(slack_url, json={"blocks": blocks}, timeout=30)
+            resp.raise_for_status()
             print("Notification sent.")
         else:
             print("No action needed.")
 
-    except Exception as e:
-        print(f"Fatal error: {e}")
+    except Exception:
+        # dead-man's-switch: 安全装置（削除/期限通知）が落ちたら「沈黙＝健全」の誤解を生むため、
+        # best-effort で Slack に失敗を叫んでから raise（関数を失敗扱いにし監視に乗せる）。§5 で詳細は出さない。
+        print("[ERROR] サンドボックス・ライフサイクル処理が予期せず失敗しました（詳細は非表示）")
+        try:
+            alert_url = get_secret(admin_pj, slack_secret)
+            if alert_url:
+                requests.post(
+                    alert_url,
+                    json={"text": "🚨 *[要確認] サンドボックス・ライフサイクル Bot が異常終了しました*\nログを確認してください（自動削除/期限通知が機能していない可能性があります）。"},
+                    timeout=30,
+                )
+        except Exception:
+            print("[ERROR] 失敗アラートの Slack 通知にも失敗しました（詳細は非表示）")
+        raise
 
 def get_secret(pj, name):
     client = secretmanager_v1.SecretManagerServiceClient()
