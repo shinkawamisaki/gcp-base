@@ -46,7 +46,10 @@ jobs:
   plan-org-policies:
     name: 'Plan: Org Policies'
     needs: check-changes
-    if: needs.check-changes.outputs.org_policies == 'true'
+    # GCP 未設定（vars.GCP_PROJECT_ID 空）の環境では plan を走らせず skip する。
+    # OSS テンプレ(gcp-base)は GCP/WIF 非接続のため、auth の常態的な赤で本物の失敗を隠さない（fail-loud 維持）。
+    # project-23378 では値があるため挙動は不変。deploy 側(platform-admin.yml)と同じ前提ガード。
+    if: needs.check-changes.outputs.org_policies == 'true' && vars.GCP_PROJECT_ID != ''
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -98,7 +101,8 @@ jobs:
   plan-foundation:
     name: 'Plan: Foundation'
     needs: check-changes
-    if: needs.check-changes.outputs.foundation == 'true'
+    # GCP 未設定なら skip（理由は Plan: Org Policies のコメント参照）。
+    if: needs.check-changes.outputs.foundation == 'true' && vars.GCP_PROJECT_ID != ''
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -159,7 +163,8 @@ jobs:
   plan-factory:
     name: 'Plan: Factory'
     needs: check-changes
-    if: needs.check-changes.outputs.factory == 'true'
+    # GCP 未設定なら skip（理由は Plan: Org Policies のコメント参照）。
+    if: needs.check-changes.outputs.factory == 'true' && vars.GCP_PROJECT_ID != ''
     runs-on: ubuntu-latest
     defaults:
       run:
