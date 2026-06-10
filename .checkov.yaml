@@ -13,14 +13,24 @@ framework:
 # CKV_GCP_77  : Secret Manager シークレットのローテーション (※IAMプレフィックスルールはCheckov対象外・AIが担当)
 # CKV2_GCP_*  : 追加ベストプラクティス
 
-# プロジェクト固有の除外 (意図的な例外は judgments.md に記録すること)
+# プロジェクト固有の除外
 #
-# 【注意】権限系チェック (CKV_GCP_41/49/117/118) はグローバル除外しないこと。
-# Handover 戦略で Runner SA / Manager SA に必要な例外は、該当リソースへの
-# インライン skip（foundation-sa.tf / project_factory/main.tf に理由付きで記載済み）で
-# 限定する。グローバル除外すると「将来どこに editor/owner を足しても沈黙」し、
-# .clinerules が Checkov に委譲した客観チェックの網羅性が崩れるため。
+# 【gcp-base 固有】権限系チェック (CKV_GCP_41/49/117) は、本 OSS テンプレ(PUBLIC)では
+# グローバル除外する。理由: 本リポは GitHub Code Scanning が有効で、checkov の SARIF が
+# アップロードされる。インライン skip(# checkov:skip=)にすると、checkov は当該チェックを
+# 「SKIPPED」として SARIF に出力し、Code Scanning が "open アラート" として恒常表示する
+# （Handover 戦略の意図的例外＝Runner SA / Manager SA の editor が消えないノイズになる）。
+# 本リポはテンプレで実 GCP に apply しないため、新規 editor 付与の被害着弾はなく、検知は
+# CodeQL / CodeRabbit / 人間レビューで担保される。
+# 注: 非公開の実検証リポ(project-23378)は GHAS 不可で Code Scanning が動かないため、
+#     あちらはインライン skip のまま（検知を効かせつつノイズが出ない）。リポ可視性に
+#     起因する正当な差分であり、判断は project-23378 の logs/active_rules.md に記録する。
 skip-check:
+  # --- 権限系 (Handover 戦略の例外・本テンプレでは Code Scanning ノイズ回避のためグローバル除外) ---
+  - CKV_GCP_41   # roles/owner・editor 付与（Runner SA / Manager SA の Handover 例外）
+  - CKV_GCP_49   # SA 管理ロール（同上）
+  - CKV_GCP_117  # 基本ロールのプロジェクトレベル付与（同上）
+
   # --- コスト・運用バランスによる除外 (Google管理鍵で十分と判断) ---
   - CKV_GCP_83   # 理由: Pub/Subの暗号化は標準のGoogle管理鍵(GMEK)を利用し、CSEK/CMEKコストを抑える
   - CKV_GCP_84   # 理由: Artifact Registry の暗号化は標準のGMEKを利用する
