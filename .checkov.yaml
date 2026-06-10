@@ -15,6 +15,11 @@ framework:
 
 # プロジェクト固有の除外
 #
+# 【監査トレース】本テンプレ(gcp-base)は内部判例ログ(logs/judgments.md)を同梱しない。
+# したがって各 skip-check の意図・理由は、この .checkov.yaml のコメントに自己完結で明記する
+# （これが本リポにおける IPO 監査向けの除外根拠の記録先）。導入先プロジェクトは、自組織の
+# 運用判断を各自の logs/judgments.md で管理すること。
+#
 # 【gcp-base 固有】権限系チェック (CKV_GCP_41/49/117) は、本 OSS テンプレ(PUBLIC)では
 # グローバル除外する。理由: 本リポは GitHub Code Scanning が有効で、checkov の SARIF が
 # アップロードされる。インライン skip(# checkov:skip=)にすると、checkov は当該チェックを
@@ -22,9 +27,6 @@ framework:
 # （Handover 戦略の意図的例外＝Runner SA / Manager SA の editor が消えないノイズになる）。
 # 本リポはテンプレで実 GCP に apply しないため、新規 editor 付与の被害着弾はなく、検知は
 # CodeQL / CodeRabbit / 人間レビューで担保される。
-# 注: 非公開の実検証リポ(project-23378)は GHAS 不可で Code Scanning が動かないため、
-#     あちらはインライン skip のまま（検知を効かせつつノイズが出ない）。リポ可視性に
-#     起因する正当な差分であり、判断は project-23378 の logs/active_rules.md に記録する。
 skip-check:
   # --- 権限系 (Handover 戦略の例外・本テンプレでは Code Scanning ノイズ回避のためグローバル除外) ---
   - CKV_GCP_41   # roles/owner・editor 付与（Runner SA / Manager SA の Handover 例外）
