@@ -164,11 +164,20 @@ resource "google_project_iam_member" "build_gcs_admin_restricted" {
   }
 }
 
-# システムバケット（Google管理）への読み取り権限を一括付与 (Gen2 ビルド成功の鍵)
+# システムバケット（Google管理）への読み取り権限 (Gen2 ビルド成功の鍵・条件付き)
+# 無条件のプロジェクト全体 objectViewer は tfstate バケット等（秘密値を含み得る）
+# まで読めてしまうため、weekly_check / sandbox_lifecycle と同じく
+# GCF ソース用システムバケットに限定する。
 resource "google_project_iam_member" "build_system_storage_viewer" {
   project = var.project_id
   role    = "roles/storage.objectViewer"
   member  = "serviceAccount:${google_service_account.billing_build_sa.email}"
+
+  condition {
+    title       = "GCF_System_Bucket_Only"
+    description = "Allows access only to Google-managed source buckets for GCF builds."
+    expression  = "resource.name.startsWith(\"projects/_/buckets/gcf-v2-sources-\")"
+  }
 }
 
 # 実行用 SA へのシークレット参照権限
@@ -279,7 +288,9 @@ resource "google_storage_bucket" "function_source_bucket" {
 
   # checkov:skip=CKV_GCP_62: "Source bucket does not need access logging"
   # checkov:skip=CKV_GCP_78: "Source bucket does not need versioning"
-  # checkov:skip=CKV_GCP_114: "Source bucket has uniform access, explicit public prevention is not strict here"
+  # PAP は「将来の誤った公開 IAM 付与」への保険。UBLA は公開付与自体を防がないため
+  # enforced を明示する（関数ソース＝サプライチェーン資材の公開事故を構造で封じる）。
+  public_access_prevention = "enforced"
 }
 
 # --- 5-2. 予算通知の重複抑制（デデュープ）マーカー用バケット ---

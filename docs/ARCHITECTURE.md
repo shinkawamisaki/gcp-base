@@ -65,6 +65,9 @@
 - **`iam.managed.allowedPolicyMembers`**: 
     - 組織メンバーおよび、特定の Google 公式サービスアカウント（予算通知等）のみを例外として許可。
     - `enforce = TRUE` により、意図しないドメインの SA 追加を物理的に遮断します。
+- **`iam.disableServiceAccountKeyCreation` / `iam.disableServiceAccountKeyUpload`**:
+    - サービスアカウントキーの新規作成・外部鍵の持ち込みを組織レベルで禁止。
+    - 本基盤は WIF による完全鍵レス運用（リポジトリ内に SA キーはゼロ）であり、このポリシーは「手動でのキー発行」という唯一の抜け道を塞ぎ、鍵レス設計を**不可逆な統制**に昇格させます。長命クレデンシャルの排除は PII 取扱・IPO 監査（アクセス経路の説明責任）の基本要件です。既存運用が鍵レスのため副作用はなく、例外が必要な場合はフォルダ単位の override で限定許可し `logs/judgments.md` に記録します。
 
 ## 4. 堅牢性と Security by Design
 
@@ -91,17 +94,23 @@ Project Factory を通じて作成された本番（prd）および検証（stg�
 - **証跡保存**: 監査結果は GCS バケットに Markdown 形式で保存され、後からの監査対応（IPO 審査等）にも利用可能。
 
 ### 6.1 PR時のAI自動検閲 (Cloud Build PR Reviewer)
-設計思想（プロジェクト憲法）から逸脱した変更を未然に防ぐため、PR（Pull Request）作成時に Cloud Build 上で自律的に動作する AI検閲官（`scripts/pr_reviewer.py`）を提供しています。
-- **設計思想との整合性チェック**: Gemini 2.5-flash が `.clinerules` と PR の差分を比較し、職務分掌や最小権限の原則に反する変更を検知します。不合格の場合は PR に「AI検閲官からのアドバイス」として自動コメントし、Status Check (`AI-Verifier`) を Failure にしてマージをブロックします（※Draft PRの場合は Warning 扱いとし通過を許可）。AI 検閲官も **Vertex AI を ADC で呼び出す鍵レス構成**で、API キーを持ちません。
+設計思想（プロジェクト憲法）から逸脱した変更を未然に防ぐため、PR（Pull Request）作成時に Cloud Build 上で自律的に動作する AI検閲官（`scripts/pr_reviewer.py`）を提供しています。AI 検閲官は **Vertex AI を ADC で呼び出す鍵レス構成**で、API キーを持ちません。
+- **設計思想との整合性チェック**: Gemini が `.clinerules` と PR の差分を比較し、職務分掌や最小権限の原則に反する変更を検知します。不合格の場合は PR に「AI検閲官からのアドバイス」として自動コメントします。
+- **フェイルクローズ判定（`STRICT_AI_VERIFY=true`）**: 判定は「`RESULT: PASS` の明示一致」を合格条件とし、PASS/FAIL のいずれにも一致しない出力は「検閲不能」として **error でマージをブロック**します（従来の「`RESULT: FAIL` を含まなければ合格」という否定形判定は、プロンプトインジェクションや形式逸脱時に合格側へ倒れるため廃止）。PR の diff は `<diff>` デリミタで囲み、diff 内に埋め込まれた指示を実行しないようプロンプトで明示します（プロンプトインジェクション対策）。
+- **審査基準は base コミットから読む（自己参照の遮断）**: 検閲基準（`.clinerules` / `logs/active_rules.md`）を PR 適用後ではなく **PR の base コミット**から取得します。これにより「ルール自体を骨抜きにする PR」を“骨抜き前のルール”で審査でき、ルール削除を同じ diff で見逃す自己参照の穴を塞ぎます（diff 自体は従来どおり PR から取得）。
+- **Draft PR の扱い（判例 DX-001）**: Draft PR は FAIL でもブロックせず、Status Check を **Pending**（非ブロック）とします。Success にすると draft→ready 転換時に再検閲が走らず FAIL のまま通過できてしまうため、Pending とすることで「Ready for Review 時点から厳格にブロックする」を技術的に強制します。
+- **可用性の多層化（判例 OPS-008）**: fail-closed ゲートが Vertex 障害時にマージを止め続けないよう、①同一構成リトライ（バックオフ付き）→ ②フォールバックモデル（`gemini-2.5-pro`）→ ③フォールバックリージョン（`global`）の順に**同一 ADC の範囲で**自動切替します。**別ベンダーの AI は使いません**（writer=Claude / reviewer=Gemini の独立性維持・新規資格情報を増やさないため）。全構成が失敗した場合のみ STRICT 契約に到達し、長時間障害は break-glass 手順（管理者バイパス＋証跡＋復旧後の再検閲）で対応します。
 - **逆引き仕様書の自動生成とGCS保存**: 承認（PASS）された変更については、AI が「誰が、何のために、どのような変更をしたか」を説明する逆引き仕様書を自動生成し、Gitリポジトリの肥大化を防ぐため直接 GCS バケット (`gs://[PROJECT_ID]-changelog-store`) にアップロードし、IPO 審査の確実な証跡とします。
 - **判例集の参照**: AI検閲は `.clinerules`（憲法）に加え `logs/active_rules.md`（人間が下した判断の判例集）を読み込み、過去の例外や判断を憲法より優先して適用します。
 - **Datadog 連携**: AI による検証の成否を Datadog へ送信します。`result` / `category`（IAM・SECRET・NETWORK 等）/ `author` / `is_draft` 等のリッチなタグが付与されます（`DATADOG_ENABLED=false` で無効化可能）。
-- **Checkov (CIS GCP)**: `governance/` および `modules/` に対して CIS Google Cloud Platform Foundation Benchmark を適用。IAM・ネットワーク・削除保護等の客観的チェックはツールに委譲し、AIは設計判断に集中。
+- **Checkov (CIS GCP)**: `governance/` および `modules/` に対して CIS Google Cloud Platform Foundation Benchmark を適用。IAM・ネットワーク・削除保護等の客観的チェックはツールに委譲し、AIは設計判断に集中します。例外（Handover 戦略の editor 等）はグローバル除外ではなく該当リソースへのインライン skip に限定し、新規の過剰権限付与が再び検知される状態を維持します。
 
 ## 7. ガバナンスの強制
 個別のプロジェクト設定に依存せず、組織全体で一律のガードレールを適用しています。
-- **データアクセスログの一括有効化**: 組織レベルで IAM, Secret Manager, Storage の監査ログを強制有効化し、IPO 審査に耐えうるトレーサビリティを確保。
-- **最小権限のビルド環境**: 監査ボットや予算通知ボット等、すべての運用系 Cloud Functions のデプロイにおいてデフォルトの強力なサービスアカウントを排除し、特定リポジトリに限定した専用ビルド SA を採用。
+- **データアクセスログの一括有効化**: 組織レベルで IAM, Secret Manager, Storage の監査ログ（`ADMIN_READ` / `DATA_READ` / `DATA_WRITE`）を強制有効化し、IPO 審査に耐えうるトレーサビリティを確保。
+    - **所有権の一本化（判例 IAM-001）**: 組織監査ログ（`google_organization_iam_audit_config`）は、組織レベル `setIamPolicy` 権限（`roles/iam.securityAdmin`）を持つ **Runner SA 管轄の foundation/security_base** で一元管理します。以前は `governance/org-policies`（org-policy SA 管轄）にも同一宣言があり、(組織,サービス) authoritative な本リソースを 2 つの State が取り合っていたため撤去しました。特権 SA（`prd-org-policy-sa`）には組織 `setIamPolicy` を**与えません**（与えると自己昇格でき、§1 の物理隔離を壊すため）。
+- **鍵レス統制の不可逆化**: 上記 §3 のとおり SA キーの作成・アップロードを組織ポリシーで禁止し、WIF による鍵レス運用を組織レベルで強制します。
+- **最小権限のビルド環境**: 監査ボットや予算通知ボット等、すべての運用系 Cloud Functions のデプロイにおいてデフォルトの強力なサービスアカウントを排除し、特定リポジトリに限定した専用ビルド SA を採用。ビルド SA の GCS 読み取りは `gcf-v2-sources-` 等の必要バケットに限定する IAM Condition を付与し、tfstate 等の高価値バケットへの到達を防ぎます。
 
 ## 8. ネットワーク設計思想
 本プロジェクトでは、単一の共有 VPC (Shared VPC) による中央集権的な管理ではなく、**「プロジェクトごとに独立したカスタム VPC」** を構築する分散型のネットワーク構成を推奨・実装しています。

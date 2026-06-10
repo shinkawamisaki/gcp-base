@@ -64,15 +64,20 @@
 *   `COMMIT_SHA`: 対象コミットハッシュ
 *   `DATADOG_ENABLED`: `true` で Datadog メトリクス送信を有効化（デフォルト: `false`）
 *   `DATADOG_API_KEY`: Datadog API キー（`DATADOG_ENABLED=true` 時のみ必要）
+*   `VERTEX_LOCATION` / `GEMINI_MODEL`: 主構成（デフォルト: `asia-northeast1` / `gemini-2.5-flash`）
+*   `VERTEX_FALLBACK_LOCATION` / `GEMINI_FALLBACK_MODEL`: 障害時フォールバック構成（デフォルト: `global` / `gemini-2.5-pro`）
 
 **処理フロー**:
 1.  **差分取得**: GitHub API を使用してPRの差分を取得。
 2.  **機密情報のマスク**: 正規表現によるパスワード・IPのマスク。
 3.  **AIプロンプト構築**: `.clinerules`（憲法）と `logs/active_rules.md`（判例集）と差分を結合。判例集は upsert 運用で行数が一定に保たれる。判例は憲法より優先してプロンプトに指示する。
+    *   **審査基準は base コミットから読む（自己参照の遮断）**: 検閲基準（`.clinerules` / `active_rules.md`）は PR 適用後ではなく **PR の base コミット**（GitHub Contents API、`base.sha` 固定）から取得する。これにより「ルールを骨抜きにする PR」を“骨抜き前のルール”で審査でき、ルール削除を同じ diff で見逃す自己参照の穴を塞ぐ。判例集の更新 PR も、未承認の新判例を自らの正当化根拠に使えない（承認は人間が `judgments.md` で行う）。diff 自体は従来どおり PR から取得するため変更内容は審査される。base 取得は PR 内容に左右されない（攻撃者が失敗を誘発不能）ため、一時的な API エラー時のみ警告付きで head 版へフォールバックして可用性を保つ。base SHA を特定できない場合は検閲不能として `STRICT_AI_VERIFY` 契約に従う。
 4.  **Gemini 呼び出し (Vertex AI 経由)**: `gemini-2.5-flash` を使用（`google-genai` + ADC 認証。API キー不要）。
+    *   **可用性の多層化（判例 OPS-008）**: fail-closed ゲートは Vertex 障害時にマージを止めるため、①同一構成でリトライ（一時的な 429/503 を吸収、バックオフ付き）→ ②フォールバックモデル → ③フォールバックリージョン、の順に同一 ADC の範囲で自動切替する。**別ベンダーのモデルは使わない**（writer=Claude / reviewer=Gemini の独立性維持・資格情報を増やさないため）。全構成が失敗した場合のみ `STRICT_AI_VERIFY` 契約（true なら error でブロック）に到達する。長時間障害時の緊急マージは break-glass 手順（本書「障害時運用」セクション）による。
 5.  **結果解析とGitHubフィードバック**:
     *   **ノイズ管理**: 既存のボットコメントが存在する場合は Update する（新規投稿でタイムラインを汚さない）。
-    *   **Draft PRの聖域化**: Draft状態ではFAIL判定でもStatus CheckをSuccessで通過させる（`logs/judgments.md` 判例 DX-001 参照）。
+    *   **Draft PRの聖域化**: Draft状態ではFAIL判定でもブロックしない（`logs/judgments.md` 判例 DX-001 参照）。Status Check は Success ではなく **Pending** とする。Draft はマージ不可のため Pending でも非ブロックであり、Success にすると draft→ready 転換時に再検閲が走らず（GitHub は ready_for_review で synchronize を発火しない）FAIL のまま必須チェックを通過できてしまう。Pending なら ready 後に再実行で Success になるまでマージ不可＝「Ready 時点から厳格にブロック」が技術的に強制される。
+    *   **想定外出力のフェイルクローズ**: AI応答が `RESULT: PASS` / `RESULT: FAIL` のいずれにも一致しない場合は「検閲不能」として扱い、`STRICT_AI_VERIFY` の契約に従う（true なら error でブロック）。従来の「FAILを含まなければ合格」という否定形判定は、プロンプトインジェクションや形式逸脱時に合格側へ倒れるため廃止。diff は `<diff>` デリミタで囲み、diff 内に含まれる指示を実行しないようプロンプトで明示する。
     *   **PASSの場合**: 既存コメントを「✅ AI検閲を通過しました」に更新し Status Check を Success に。
     *   **FAILの場合（Ready for Review時）**: 指摘事項・修正案（Suggested Changes）をPRコメントに更新/投稿。Status CheckをFailureにしてマージをブロック。AIは `CATEGORY: IAM|SECRET|NETWORK|HARDCODING|POLICY|OTHER` を出力し、Datadogタグとして使用する。
 6.  **逆引き仕様書生成**: PASSした場合、Geminiにドキュメントを生成させ GCS (`gs://[PROJECT_ID]-changelog-store/`) へアップロード。
@@ -130,3 +135,23 @@ Terraformで以下のリソースを構築（または追記）します。
 *   **Step 3**: `cloudbuild-pr.yaml` をプロジェクトルートに作成する。
 *   **Step 4**: `governance/admin/foundation/` 配下のTerraformコードを修正し、Cloud Buildトリガー、Artifact Registry、IAM権限、Secret Manager定義を追加する。
 *   **Step 5**: ローカルの `.githooks/pre-commit` から `cross_verify.sh` の呼び出しを削除し、ローカル検証からクラウド検証への切り替えを完了させる。
+
+## 5. 障害時運用（break-glass）
+
+`STRICT_AI_VERIFY=true`（fail-closed）の下で Vertex AI の長時間障害が発生すると、AI-Verifier は必須チェックとして全 PR のマージをブロックする。これは設計どおりの挙動である（検閲不能時に開くゲートは、エラーを意図的に誘発できる攻撃者に対して強制力を持たないため）。緊急時の脱出経路は以下の手順に限定する（判例 OPS-008）。
+
+**前提**: branch protection の `enforce_admins=false`（現行設定）により管理者は必須チェックをバイパスしてマージできる。この設定を `true` に変更する場合は、本手順の代替手段（必須チェックの一時解除等）を先に再設計すること。
+
+**適用条件（すべて満たす場合のみ）**:
+1. リトライ＋フォールバック（別モデル・global リージョン）をすべて尽くした failure であること（Cloud Build ログの「全リトライ・フォールバック試行後」の ERROR で確認）
+2. Cloud Build の再実行（Retry）を1回以上試しても回復しないこと
+3. マージを障害復旧まで待てない緊急性があること（本番影響のある修正等）。待てるなら待つのが既定
+
+**手順**:
+1. 当該 PR に以下を**コメントで記録してから**管理者権限でマージする:
+   - break-glass 適用の宣言と理由（何が緊急か）
+   - 障害の確認方法（Cloud Build ログ・[Google Cloud ステータス](https://status.cloud.google.com/) 等）
+2. **復旧後 48 時間以内に再検閲**する: Cloud Build トリガーを再実行し、結果を同 PR にコメントで記録する
+3. 再検閲が FAIL の場合は、即時にフォローアップ PR で是正する
+
+**証跡**: バイパスの事実は GitHub の監査ログと PR コメントに残る。PR コメントへの事前記録を必須とすることで、「誰が・なぜ・何を確認して」バイパスしたかを IPO 監査で説明可能にする。`[skip ai]` のような恒常的バイパス機構は判例（2026-05-07 / DX-001 の理由②）どおり設けない。

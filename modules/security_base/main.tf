@@ -112,11 +112,20 @@ locals {
 }
 
 # 組織レベルでの有効化 (組織管理者権限が必要)
+# 【所有権の一本化 / 判例 IAM-001】組織監査ログは、組織レベル setIamPolicy を
+# 持つ Runner SA 管轄の本 state（foundation 経由）で一元管理する。以前は
+# governance/org-policies 側にも同一宣言があり、(組織,サービス) authoritative な
+# 本リソースを2つの state が取り合っていたが、org-policies 側を撤去した。
+# ADMIN_READ は旧 org-policies 側にのみ存在したため、一本化に伴いここへ移設し
+# 監査範囲を後退させない。
 resource "google_organization_iam_audit_config" "org_config" {
   count   = var.use_org_level ? length(local.audit_services) : 0
   org_id  = var.org_id
   service = local.audit_services[count.index]
 
+  audit_log_config {
+    log_type = "ADMIN_READ" # 管理情報の読み取り（旧 org-policies から移設）
+  }
   audit_log_config {
     log_type = "DATA_READ"  # 読み取り操作 (IAMやSecretManagerで重要)
   }
@@ -131,6 +140,9 @@ resource "google_project_iam_audit_config" "project_config" {
   project = var.project_id
   service = local.audit_services[count.index]
 
+  audit_log_config {
+    log_type = "ADMIN_READ" # 組織レベルと監査範囲を揃える
+  }
   audit_log_config {
     log_type = "DATA_READ"
   }

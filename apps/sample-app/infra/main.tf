@@ -24,6 +24,9 @@ resource "google_storage_bucket" "app_data" {
   location      = var.region
   force_destroy = var.env == "sandbox" # サンドボックスなら削除可能に
   uniform_bucket_level_access = true
+  # PII を扱い得るデータバケットの既定形。UBLA は公開 IAM 付与自体を防がないため、
+  # public_access_prevention で公開を構造的に封じる（このサンプルが各アプリの雛形になる）。
+  public_access_prevention = "enforced"
 }
 
 # ---------------------------------------------------------------

@@ -9,7 +9,10 @@
 ### 1.1 通常プロジェクト (App Projects)
 1.  `governance/admin/factory/inventory.json` を更新します。
 2.  **直接のプッシュは禁止**されているため、必ず Pull Request (PR) を作成してください。
-3.  PR作成後、自動で実行される「AI検閲」および「Checkov (セキュリティ解析)」を通過（Status Check が Success になること）がマージの必須条件です。
+3.  PR作成後、自動で実行される「AI検閲 (`AI-Verifier`)」および「Checkov (セキュリティ解析)」を通過（Status Check が Success になること）がマージの必須条件です。
+    - **AI検閲の合否**: `RESULT: PASS` の明示一致で合格、それ以外（FAIL・想定外応答）は Failure/error でブロックされます（Fail-Closed）。指摘は PR コメントに出ます。
+    - **Draft PR の扱い**: Draft の間は FAIL でもブロックせず Status Check は **Pending（非ブロック）** になります（Draft はそもそもマージ不可）。Ready for Review にした時点で再検閲が走り、Success になるまでマージできません（判例 DX-001）。
+    - **Vertex 障害時**: リトライ＋モデル/リージョンのフォールバックで自動回復を試みます。長時間障害でどうしてもマージが必要な場合のみ、管理者バイパス（break-glass）を PR コメントへの記録付きで行います（判例 OPS-008・詳細は `docs/SPEC_AI_VERIFIER_CLOUDBUILD.md`）。
 4.  （※現在の1名体制の運用ルール上、他者のレビューは必須としておらず、チェックを通過すれば**自己マージが可能**です）
 5.  マージされると、GitHub Actions が発火し自動的にプロジェクトが作成されます。
 
