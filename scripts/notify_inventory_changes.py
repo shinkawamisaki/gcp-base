@@ -131,7 +131,13 @@ def main():
         old_config = old_inv.get('apps', {}).get(app_name)
         if not old_config or config != old_config:
             repo = config.get('github_repo')
-            if not repo or not gh_token: continue
+            if not repo: continue
+            # fail-loud: トークン未取得で同期対象があるのに exit 0 すると、
+            # 「Variables 自動同期済み」前提の払い出しが無言で未設定のまま
+            # 完了扱いになる。failed に積んで既存の exit(1) 経路に乗せる。
+            if not gh_token:
+                sync_results["failed"].append(f"`{app_name}` — GitHub トークン未取得のため変数同期をスキップ（要対応）")
+                continue
             
             try:
                 print(f"🔄 Syncing variables for {app_name} to {repo}...")
@@ -176,7 +182,11 @@ def main():
         old_config = old_inv.get('sandboxes', {}).get(sb_key)
         if not old_config or config != old_config:
             repo = config.get('github_repo')
-            if not repo or not gh_token: continue
+            if not repo: continue
+            # fail-loud: Apps 側と同じ理由でスキップを failed に記録する
+            if not gh_token:
+                sync_results["failed"].append(f"`{sb_key}` — GitHub トークン未取得のため変数同期をスキップ（要対応）")
+                continue
             
             try:
                 print(f"🧪 Syncing variables for Sandbox {sb_key} to {repo}...")

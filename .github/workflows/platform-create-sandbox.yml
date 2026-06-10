@@ -37,16 +37,36 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # セキュリティ: workflow_dispatch の入力は信頼できない文字列として扱う。
+      # ${{ }} を run: に直接展開するとシェル解釈前に文字列置換され、
+      # 任意コマンド実行（スクリプトインジェクション）が可能になるため、
+      # 必ず env: 経由で受け、シェル内では "$VAR" として参照する。
+      - name: Validate inputs
+        env:
+          SANDBOX_ID: ${{ github.event.inputs.sandbox_id }}
+          GITHUB_REPO: ${{ github.event.inputs.github_repo }}
+        run: |
+          # sandbox_id は GCP プロジェクト ID の一部になるため小文字英数とハイフンのみ許可
+          if ! printf '%s' "$SANDBOX_ID" | grep -Eq '^[a-z0-9][a-z0-9-]{0,29}$'; then
+            echo "::error::Invalid sandbox_id format (allowed: ^[a-z0-9][a-z0-9-]{0,29}$)"
+            exit 1
+          fi
+          # github_repo は owner/repo 形式のみ許可
+          if ! printf '%s' "$GITHUB_REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'; then
+            echo "::error::Invalid github_repo format (expected: owner/repo)"
+            exit 1
+          fi
+
       - name: Update inventory.json
+        env:
+          SANDBOX_ID: ${{ github.event.inputs.sandbox_id }}
+          GITHUB_REPO: ${{ github.event.inputs.github_repo }}
+          EXPIRY_DAYS: ${{ github.event.inputs.expiry_days }}
+          ACTOR: ${{ github.actor }}
         run: |
           INVENTORY_PATH="governance/admin/factory/inventory.json"
-          
-          # 変数の準備
-          SANDBOX_ID="${{ github.event.inputs.sandbox_id }}"
-          GITHUB_REPO="${{ github.event.inputs.github_repo }}"
-          EXPIRY_DAYS="${{ github.event.inputs.expiry_days }}"
-          OWNER_EMAIL="${{ github.actor }}@users.noreply.github.com"
-          
+          OWNER_EMAIL="${ACTOR}@users.noreply.github.com"
+
           # 具体的な削除期限日の計算 (YYYY-MM-DD)
           EXPIRY_DATE=$(date -d "+$EXPIRY_DAYS days" +%Y-%m-%d)
 
@@ -62,11 +82,13 @@ jobs:
           echo "Inventory updated for sandbox: $SANDBOX_ID (Expires: $EXPIRY_DATE)"
 
       - name: Commit and Push changes
+        env:
+          SANDBOX_ID: ${{ github.event.inputs.sandbox_id }}
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add governance/admin/factory/inventory.json
-          git commit -m "feat: add new sandbox [${{ github.event.inputs.sandbox_id }}] via workflow"
+          git commit -m "feat: add new sandbox [$SANDBOX_ID] via workflow"
           git push origin main
 
       - name: Trigger Factory Deployment

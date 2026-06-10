@@ -127,8 +127,11 @@ resource "google_project_iam_member" "manager_sa_privilege" {
   role     = (each.key == "prd") ? "roles/viewer" : "roles/editor"
   member   = "serviceAccount:${google_service_account.manager_sas[each.key].email}"
 
+  # Handover 戦略の例外（グローバル skip ではなくこのリソース限定で許容する）
   # checkov:skip=CKV_GCP_118: "roles/editor is allowed for Manager SA"
   # checkov:skip=CKV_GCP_41: "roles/editor is allowed for Manager SA"
+  # checkov:skip=CKV_GCP_117: "Basic role (editor/viewer) is the documented Handover design for Manager SA (judgments.md)"
+  # checkov:skip=CKV_GCP_49: "Manager SA role grant is intentional per Handover strategy (judgments.md)"
 }
 
 # 5-4. WIF 連携の設定 (リポジトリ完全一致による最小権限)

@@ -1,4 +1,8 @@
-functions-framework
-google-cloud-secret-manager
-requests
-google-cloud-billing-budgets
+# 下限ピン: 未固定だとビルドのたびに何が入るか不定で再現性がなく、
+# 脆弱版混入のサプライチェーンリスクになる（sandbox_lifecycle と同方針）。
+# requests は OSV 照会済みの sandbox_lifecycle と下限を揃える。
+# functions-framework / google-cloud-billing-budgets は OSV.dev で既知CVEなし（2026-06-10時点で実照会）。
+functions-framework>=3.5.0
+google-cloud-secret-manager>=2.16.0
+requests>=2.33.0
+google-cloud-billing-budgets>=1.9.1

@@ -14,12 +14,13 @@ framework:
 # CKV2_GCP_*  : 追加ベストプラクティス
 
 # プロジェクト固有の除外 (意図的な例外は judgments.md に記録すること)
+#
+# 【注意】権限系チェック (CKV_GCP_41/49/117/118) はグローバル除外しないこと。
+# Handover 戦略で Runner SA / Manager SA に必要な例外は、該当リソースへの
+# インライン skip（foundation-sa.tf / project_factory/main.tf に理由付きで記載済み）で
+# 限定する。グローバル除外すると「将来どこに editor/owner を足しても沈黙」し、
+# .clinerules が Checkov に委譲した客観チェックの網羅性が崩れるため。
 skip-check:
-  # --- 権限設計 (Handover戦略の許容) ---
-  - CKV_GCP_49   # 理由: Runner SA による他SAの管理(ServiceAccountAdmin)を許可するため
-  - CKV_GCP_117  # 理由: 管理PJ内のデプロイ実務用 roles/editor を許可するため (judgments.md 参照)
-  - CKV_GCP_41   # 理由: 上記同等。Runner SA に対する広範な権限付与を許可するため
-
   # --- コスト・運用バランスによる除外 (Google管理鍵で十分と判断) ---
   - CKV_GCP_83   # 理由: Pub/Subの暗号化は標準のGoogle管理鍵(GMEK)を利用し、CSEK/CMEKコストを抑える
   - CKV_GCP_84   # 理由: Artifact Registry の暗号化は標準のGMEKを利用する
@@ -27,7 +28,9 @@ skip-check:
   # --- バケット・ネットワークの過剰検知回避 ---
   - CKV_GCP_62   # 理由: すべてのバケットにアクセスログを強制するとログループやコスト増の懸念があるため
   - CKV_GCP_78   # 理由: 一時ファイル(ソースコードzip等)のバケットまでバージョニングを強制しないため
-  - CKV_GCP_114  # 理由: Terraform 側で uniform_bucket_level_access = true を強制しており実質的に防げているケースが多いため
+  # CKV_GCP_114 (public_access_prevention) はグローバル除外を廃止。
+  # UBLA は「公開 IAM 付与」自体を防がないため PAP の代替にならない。
+  # 全バケットに public_access_prevention = "enforced" を明示する。
   - CKV_GCP_27   # 理由: google_project リソースでの auto_create_network = false を強制されるが、モジュール側で個別対応しているため
   - CKV_GCP_124  # 理由: Cloud Functions の Ingress 制限。Eventarc 等の内部トリガーでも検知されるため除外
 

@@ -22,9 +22,11 @@ resource "google_project_iam_member" "runner_admin_privileges" {
   role    = each.value
   member  = "serviceAccount:${data.google_service_account.terraform_runner.email}"
 
+  # Handover 戦略の例外（グローバル skip ではなくこのリソース限定で許容する）
   # checkov:skip=CKV_GCP_118: "roles/editor is allowed for Terraform Runner SA"
   # checkov:skip=CKV_GCP_41: "SA management roles are allowed for Terraform Runner SA"
   # checkov:skip=CKV_GCP_49: "SA management roles are allowed for Terraform Runner SA"
+  # checkov:skip=CKV_GCP_117: "Basic role (editor) in admin project is the documented Handover design (judgments.md)"
 }
 
 # ---------------------------------------------------------------

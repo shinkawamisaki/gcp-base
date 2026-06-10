@@ -23,17 +23,27 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # セキュリティ: workflow_dispatch の入力は信頼できない文字列として扱う。
+      # ${{ }} の run: 直接展開はスクリプトインジェクションになるため env: 経由で受け、
+      # jq への受け渡しもフィルタ文字列への埋め込みではなく --arg を使う。
       - name: Remove from inventory.json and Commit
+        env:
+          SANDBOX_ID: ${{ github.event.inputs.sandbox_id }}
         run: |
+          # sandbox_id の形式検証（create 側と同一の制約）
+          if ! printf '%s' "$SANDBOX_ID" | grep -Eq '^[a-z0-9][a-z0-9-]{0,29}$'; then
+            echo "::error::Invalid sandbox_id format (allowed: ^[a-z0-9][a-z0-9-]{0,29}$)"
+            exit 1
+          fi
+
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          
+
           INVENTORY_PATH="governance/admin/factory/inventory.json"
-          SANDBOX_ID="${{ github.event.inputs.sandbox_id }}"
-          
+
           # 1. jq で削除を試みる (キーがなければ何もしない)
-          if jq -e ".sandboxes | has(\"$SANDBOX_ID\")" "$INVENTORY_PATH" > /dev/null; then
-            jq "del(.sandboxes[\"$SANDBOX_ID\"])" "$INVENTORY_PATH" > inventory.tmp && mv inventory.tmp "$INVENTORY_PATH"
+          if jq -e --arg id "$SANDBOX_ID" '.sandboxes | has($id)' "$INVENTORY_PATH" > /dev/null; then
+            jq --arg id "$SANDBOX_ID" 'del(.sandboxes[$id])' "$INVENTORY_PATH" > inventory.tmp && mv inventory.tmp "$INVENTORY_PATH"
             echo "Successfully modified inventory.json to remove $SANDBOX_ID"
           else
             echo "Notice: Sandbox ID '$SANDBOX_ID' not found in inventory.json."

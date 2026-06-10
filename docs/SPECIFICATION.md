@@ -34,6 +34,7 @@
 1.  **検知**: `sandbox_lifecycle` ボットが日次で稼働（既定 朝7時 JST。`lifecycle_schedule` 変数で変更可）。ラベル `expiry_date`（日単位 `YYYY-MM-DD`）を現在日付と比較。同じ実行で「あと N 日」のカウントダウン警告も始業前に通知する。
 2.  **削除依頼 (Slack & GitHub)**: 期限切れを検知すると、ボットが Slack に「自動クリーンアップ開始」を通知し、GitHub API を叩いて `platform-delete-sandbox.yml` を起動。
     - **認証**: **GitHub App** による Installation Access Token (IAT) を使用（PAT からの移行により、特定リポジトリへの最小権限アクセスを実現）。
+    - **入力の安全な取り扱い**: `platform-create-sandbox.yml` / `platform-delete-sandbox.yml` は `workflow_dispatch` の入力（`sandbox_id` / `github_repo`）を `run:` ブロックへ直接展開せず、すべて環境変数経由で受け取り、シェル内では `"$VAR"` 参照に統一します。さらに冒頭で形式検証（`sandbox_id`: `^[a-z0-9][a-z0-9-]{0,29}$`、`github_repo`: `owner/repo`）を行い、入力経由のスクリプトインジェクション（任意コマンド実行→`main` 直 push→本番 apply 到達）を遮断します。
 3.  **台帳更新**: ワークフローが `inventory.json` から当該サンドボックスの定義を自動削除し、`main` に Push。
 4.  **物理削除**: 台帳更新をトリガーに Terraform が起動。「定義が消えた」ことを検知し、GCP 上のプロジェクトを安全に物理削除（destroy）する。
 
@@ -71,6 +72,7 @@
     - `ADMIN_PROJECT_ID / NUMBER`: 管理基盤の情報
     - `ID_DEV / ID_STG / ID_PRD`: 各環境の GCP プロジェクト ID
 - **動作保証**: 1つのリポジトリの同期に失敗しても他の処理を止めない「非ブロッキング同期」を採用。失敗時は Slack にエラーレポートを配信します。
+- **フェイルラウド（サイレント成功の禁止）**: GitHub トークン（PAT / App）が取得できない場合でも、同期対象があるのに無言でスキップして正常終了することはしません。スキップした対象を失敗として記録し、Slack 通知＋非ゼロ終了（CI 赤）で表面化させます。「自動同期済み」という通知だけ届いて実際は未設定、という偽陰性を防ぎます。
 
 ### 4.2 スマート通知ロジック
 - `inventory.json` の Git 差分を自動解析。

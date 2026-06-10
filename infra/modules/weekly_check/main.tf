@@ -172,7 +172,9 @@ resource "google_storage_bucket" "audit_source_bucket" {
 
   # checkov:skip=CKV_GCP_62: "Source bucket does not need access logging"
   # checkov:skip=CKV_GCP_78: "Source bucket does not need versioning"
-  # checkov:skip=CKV_GCP_114: "Source bucket has uniform access, explicit public prevention is not strict here"
+  # PAP は「将来の誤った公開 IAM 付与」への保険。UBLA は公開付与自体を防がないため
+  # enforced を明示する（関数ソース＝サプライチェーン資材の公開事故を構造で封じる）。
+  public_access_prevention = "enforced"
 
   depends_on               = [time_sleep.wait_for_apis]
 }

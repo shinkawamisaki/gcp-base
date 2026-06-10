@@ -97,6 +97,12 @@ Pull Request作成時に自動実行されるAIレビューのフィードバッ
 - `logs/judgments.md`: 人間が下した判断の全履歴（Append-only）。IPO監査や経緯確認用。
 - `logs/active_rules.md`: AIが参照する現在有効なルールのスナップショット。同トピックは上書きされ、コンテキスト長を節約する。
 
+**ゲートの堅牢性（強制ゲートとして成立させるための設計）:**
+- **Fail-Closed 判定**: 合格は `RESULT: PASS` の**明示一致**のみ。PASS/FAIL いずれにも一致しない出力（プロンプトインジェクション成功・形式逸脱）は「検閲不能」として扱う。従来の「FAIL を含まなければ合格」という否定形判定は合格側に倒れるため廃止。PR の diff は `<diff>` デリミタで囲み、diff 内の指示を実行しないようプロンプトで明示する。検閲不能をブロックにするかは `STRICT_AI_VERIFY`（本番運用では `true` 推奨）で制御する。
+- **審査基準は base コミットから読む（自己参照の遮断）**: `.clinerules` / `active_rules.md` を PR 適用後ではなく **PR の base** から読む。これにより「ルール自体を骨抜きにする PR」を骨抜き前のルールで審査でき、判例の改変も削除前の基準で検閲される（diff は PR から取得するので変更内容は審査される）。判例の更新 PR が、その未承認の判例を自らの正当化に使うこともできない。
+- **Draft PR の扱い**: Draft は FAIL でも非ブロックだが Status Check は Success ではなく **Pending**。Success にすると draft→ready 転換で再検閲が走らず FAIL のまま通過できるため、Pending で「Ready 時点から厳格にブロック」を技術的に強制する。
+- **可用性の多層化**: Vertex 障害時は ①リトライ → ②フォールバックモデル（`gemini-2.5-pro`）→ ③フォールバックリージョン（`global`）の順に同一 ADC で自動切替。**別ベンダーの AI は使わない**（writer / reviewer の独立性維持・新規資格情報を増やさない）。
+
 ```mermaid
 flowchart TD
     FAIL["GeminiがFAILを出す<br>or<br>人間が判定ミスに気づく"]

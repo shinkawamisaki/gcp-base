@@ -4,9 +4,10 @@ set -e
 # ==============================================================================
 # GCP Foundation: Secret Setup Script
 # 
-# [目的] 
+# [目的]
 # Secret Manager に保存する機密情報を Admin プロジェクトに集約して登録します。
-# 入力内容は画面に表示されませんが、確実に登録されます。
+# 単一行の値は read -s で非表示入力、複数行の鍵はファイルパス指定で、
+# 値を端末に一切表示せずに登録します。
 # ==============================================================================
 
 # 色の設定
@@ -46,22 +47,38 @@ set_secret() {
     fi
 
     if [[ "$NAME" == *"private-key"* ]]; then
-        echo -e "${YELLOW}Wait: This secret supports MULTI-LINE input.${NC}"
-        echo -e "${YELLOW}1. Paste your Private Key below.${NC}"
-        echo -e "${YELLOW}2. Press [Enter] then [Ctrl+D] to save.${NC}"
-        SECRET_VALUE=$(cat)
-    else
-        echo -e "${YELLOW}Wait: Paste your value below and press Enter.${NC}"
-        read -p "Value for $NAME: " SECRET_VALUE
+        # 複数行の秘密鍵を端末に貼り付けると、入力内容がそのままエコーされ
+        # スクロールバック・画面共有・録画に残るため、値を端末に通さない
+        # 「ファイルパス指定」方式とする（中身は gcloud が直接読む）。
+        echo -e "${YELLOW}Wait: This secret is MULTI-LINE. Enter the path to the key file.${NC}"
+        echo -e "${YELLOW}(File content is sent directly to Secret Manager and never echoed.)${NC}"
+        read -r -p "Path to key file for $NAME (empty to skip): " KEY_FILE
+        if [ -z "$KEY_FILE" ]; then
+            echo -e "${YELLOW}Skipped: No file specified.${NC}"
+            return
+        fi
+        if [ ! -f "$KEY_FILE" ]; then
+            echo -e "${RED}Error: File not found: $KEY_FILE${NC}"
+            return
+        fi
+        gcloud secrets versions add "$NAME" --data-file="$KEY_FILE" --project="$PJ" --quiet
+        echo -e "${GREEN}Successfully updated $NAME!${NC}"
+        echo -e "${YELLOW}Reminder: delete the local key file when no longer needed.${NC}"
+        return
     fi
-    echo "" # 改行用
+
+    # -s: 入力を画面にエコーしない（シークレットを端末表示・記録に残さない）
+    echo -e "${YELLOW}Wait: Paste your value below and press Enter (input is hidden).${NC}"
+    read -rs -p "Value for $NAME: " SECRET_VALUE
+    echo "" # read -s は改行を出力しないため明示
 
     if [ -z "$SECRET_VALUE" ]; then
         echo -e "${YELLOW}Skipped: Value is empty.${NC}"
         return
     fi
 
-    echo -n "$SECRET_VALUE" | gcloud secrets versions add "$NAME" --data-file=- --project="$PJ" --quiet
+    # パイプ渡し: CLI 引数だと ps で他プロセスから値が見えるため stdin で渡す
+    printf '%s' "$SECRET_VALUE" | gcloud secrets versions add "$NAME" --data-file=- --project="$PJ" --quiet
     echo -e "${GREEN}Successfully updated $NAME!${NC}"
     unset SECRET_VALUE
 }

@@ -39,6 +39,11 @@ GH_ORG_NAME=$(get_var "gh_org_name")
 RUNNER_SA_NAME="prd-terraform-runner-sa"
 RUNNER_SA_EMAIL="$RUNNER_SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
 
+# fail-loud: リトライ尽きた失敗を握り潰さず集約し、最後に非0で終了する。
+# ガードレール（org-policy）未適用や監査証跡の保存失敗が「完了しました」で
+# 緑に見えると、欠落に誰も気付けない（偽りの安心が最も危険）。
+FAILED_STEPS=()
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
@@ -102,6 +107,7 @@ for i in $(seq 1 $MAX_RETRIES); do
     # §5: 生のエラー出力（請求アカウントID等の内部情報を含み得る）はログに出さず抽象化する。
     # 詳細は実行端末の権限で `gcloud billing projects link` を手動実行して確認する運用とする。
     echo -e "${RED}  権限・請求アカウントID・対象APIの有効化状態を確認してください（詳細はマスク）。${NC}"
+    FAILED_STEPS+=("billing-link")
   else
     echo -e "${YELLOW}  - 反映待ち... リトライ中 ($i/$MAX_RETRIES)...${NC}"
     sleep 20
@@ -265,6 +271,7 @@ EOF
     fi
     if [ $i -eq $MAX_RETRIES ]; then
       echo -e "${RED}    [ERROR] ポリシー適用に失敗しました。${NC}"
+      FAILED_STEPS+=("org-policy-folder:${RAW_ID}")
     else
       echo -e "${YELLOW}    - 反映待ち... リトライ中 ($i/$MAX_RETRIES)...${NC}"
       sleep 15
@@ -285,7 +292,10 @@ cat <<EOF > "$METADATA_FILE"
   "sandbox_folder_id": "folders/${SANDBOX_FOLDER_ID#folders/}"
 }
 EOF
-gsutil cp "$METADATA_FILE" "gs://$BUCKET_NAME/bootstrap_metadata.json" >/dev/null 2>&1
+if ! gsutil cp "$METADATA_FILE" "gs://$BUCKET_NAME/bootstrap_metadata.json" >/dev/null 2>&1; then
+  echo -e "${RED}[ERROR] bootstrap_metadata.json の GCS 保存に失敗しました（後続の参照が壊れます）。${NC}"
+  FAILED_STEPS+=("metadata-upload")
+fi
 rm -f "$METADATA_FILE"
 
 # Admin - Foundation レイヤー用
@@ -377,10 +387,29 @@ cat <<EOF > "$AUDIT_LOG_FILE"
 EOF
 
 # バケットはバージョニング有効化済みのため、証跡として安全に保管されます
-gsutil cp "$AUDIT_LOG_FILE" "gs://$BUCKET_NAME/audit_logs/$AUDIT_LOG_FILE" >/dev/null 2>&1
-rm -f "$AUDIT_LOG_FILE"
+# 監査証跡（IPO 用）の保存は成功確認が必須。失敗を握り潰して
+# 「保存しました」と表示するのは虚偽の証跡報告になる。
+if gsutil cp "$AUDIT_LOG_FILE" "gs://$BUCKET_NAME/audit_logs/$AUDIT_LOG_FILE" >/dev/null 2>&1; then
+  rm -f "$AUDIT_LOG_FILE"
+  echo -e "${GREEN}[OK] 監査ログを gs://$BUCKET_NAME/audit_logs/ に保存しました。${NC}"
+else
+  # trap が bootstrap_audit_log_*.json を削除するため、.unsent に退避して保全する
+  mv "$AUDIT_LOG_FILE" "${AUDIT_LOG_FILE}.unsent"
+  echo -e "${RED}[ERROR] 監査ログの GCS 保存に失敗しました。ローカルに ${AUDIT_LOG_FILE}.unsent として退避しました。${NC}"
+  echo -e "${RED}  手動でアップロードしてください: gsutil cp ${AUDIT_LOG_FILE}.unsent gs://$BUCKET_NAME/audit_logs/$AUDIT_LOG_FILE${NC}"
+  FAILED_STEPS+=("audit-log-upload")
+fi
 
-echo -e "${GREEN}[OK] 監査ログを gs://$BUCKET_NAME/audit_logs/ に保存しました。${NC}"
+if [ ${#FAILED_STEPS[@]} -gt 0 ]; then
+  echo -e "\n${RED}================================================================${NC}"
+  echo -e "${RED}  セットアップは完了していません（失敗したステップがあります）${NC}"
+  for step in "${FAILED_STEPS[@]}"; do
+    echo -e "${RED}    - $step${NC}"
+  done
+  echo -e "${RED}  上記を解消してから本スクリプトを再実行してください（再実行は冪等です）。${NC}"
+  echo -e "${RED}================================================================${NC}\n"
+  exit 1
+fi
 
 echo -e "\n${GREEN}================================================================${NC}"
 echo -e "${GREEN}  セットアップが完了しました${NC}"

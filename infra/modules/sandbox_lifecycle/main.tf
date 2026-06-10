@@ -137,10 +137,14 @@ resource "time_sleep" "wait_for_lifecycle_iam" {
   ]
 }
 
-# 権限: 指定フォルダ内のプロジェクト管理
+# 権限: 指定フォルダ内のプロジェクト一覧・ラベル読み取り
+# 最小権限: 本ボットの GCP 操作は list_projects（一覧＋ラベル読取）のみで、
+# 物理削除は GitHub workflow 経由の Terraform (Runner SA) が行う。
+# folderAdmin は setIamPolicy（フォルダ配下への任意の権限付与）を含むため、
+# 自動実行ボットの侵害が権限昇格に直結する。読み取りには browser で十分。
 resource "google_folder_iam_member" "lifecycle_viewer" {
   folder = var.scan_folder_id
-  role   = "roles/resourcemanager.folderAdmin"
+  role   = "roles/browser"
   member = "serviceAccount:${google_service_account.lifecycle_sa.email}"
 }
 
@@ -208,7 +212,9 @@ resource "google_storage_bucket" "lifecycle_source_bucket" {
 
   # checkov:skip=CKV_GCP_62: "Source bucket does not need access logging"
   # checkov:skip=CKV_GCP_78: "Source bucket does not need versioning"
-  # checkov:skip=CKV_GCP_114: "Source bucket has uniform access, explicit public prevention is not strict here"
+  # PAP は「将来の誤った公開 IAM 付与」への保険。UBLA は公開付与自体を防がないため
+  # enforced を明示する（関数ソース＝サプライチェーン資材の公開事故を構造で封じる）。
+  public_access_prevention = "enforced"
 }
 
 resource "google_storage_bucket_object" "lifecycle_zip" {

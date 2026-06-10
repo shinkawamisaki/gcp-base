@@ -111,7 +111,7 @@ gcp-base/
    ./scripts/bootstrap.sh
    ./scripts/setup_secrets.sh
    ```
-   ※ `setup_secrets.sh` を実行すると、Slack Webhook URL 等の入力を求められます（AI 機能は Vertex AI の ADC 認証を使うため、Gemini API キーは不要です）。
+   ※ `setup_secrets.sh` を実行すると、Slack Webhook URL 等の入力を求められます。**入力値は端末に表示されません**（単一行の値は非表示入力、複数行の秘密鍵はファイルパス指定で、シークレットを画面・スクロールバックに残しません）。AI 機能は Vertex AI の ADC 認証を使うため、Gemini API キーは不要です。
    > **💰 AI 機能のコスト・リージョンについて**
    > 監査Bot の脅威 Top5 要約と PR 検閲は **Vertex AI (Gemini)** を利用するため、実行に応じた**課金が発生します**（キーレスの ADC 認証・`roles/aiplatform.user`）。導入前に以下を確認してください（いずれも `weekly_check` モジュールの terraform 変数で調整します）。
    > - **モデル / リージョンは変更可能**: 既定はモデル `gemini-2.5-flash`（低コスト帯）・リージョン `asia-northeast1`。データレジデンシーや課金要件に応じて変数 `gemini_model` / `vertex_location` で上書きできます（Cloud Function の `GEMINI_MODEL` / `VERTEX_LOCATION` 環境変数に反映されます）。
@@ -202,9 +202,11 @@ WIF（GitHub連携）、予算通知、監視ボットなどを構築します�
 ## セキュリティ設計 (Security by Design)
 
 - **IPO対応のガバナンス**: `owner` や `editor` などの強い基本ロールを排除し、原則としてIAM条件(Conditions)を用いた時間的・スコープ的に限定された権限のみを使用。
-- **自律的レビュー**: コード変更はマージ前に `.clinerules` に基づいて AI (Gemini) が自律的にレビューし、違反があればブロック（Fail-Closed）。
-    - **検閲不能時の挙動 (`STRICT_AI_VERIFY`)**: AIが検閲を実行**できない**場合（SDK欠落やVertex APIエラー等）の扱いは環境変数 `STRICT_AI_VERIFY` で切り替えます。**OSS 既定は `false`（fail-open: 警告を出して続行）**で、導入のハードルを下げるための意図的な設定です。**本番運用では `true`（fail-closed: 検閲不能ならマージをブロック）を推奨**します。なお、AIが違反を**検知した**場合（`RESULT: FAIL`）は `STRICT_AI_VERIFY` の値に関わらず常にブロックされます（Draft PR を除く）。
+- **完全鍵レスの不可逆化**: WIF による鍵レス運用に加え、組織ポリシー `iam.disableServiceAccountKeyCreation` / `iam.disableServiceAccountKeyUpload` で SA キーの作成・持ち込みを組織レベルで禁止し、長命クレデンシャルを構造的に排除。
+- **自律的レビュー**: コード変更はマージ前に AI (Gemini) が `.clinerules`・判例集に基づいて自律レビュー。判定は `RESULT: PASS` の明示一致を合格条件とし、審査基準は PR の base コミットから読み込んで「ルール自体を骨抜きにする PR」を骨抜き前のルールで検閲します（自己参照の遮断）。Vertex 障害時はリトライ＋モデル/リージョンのフォールバックで可用性を確保（別ベンダーは使用しません）。
+    - **検閲不能時の挙動 (`STRICT_AI_VERIFY`)**: AIが検閲を実行**できない**場合（SDK欠落・Vertex APIエラー・想定外応答等）の扱いは環境変数 `STRICT_AI_VERIFY` で切り替えます。**OSS 既定は `false`（fail-open: 警告を出して続行）**で、導入のハードルを下げるための意図的な設定です。**本番運用では `true`（fail-closed: 検閲不能ならマージをブロック）を推奨**します。なお、AIが違反を**検知した**場合（`RESULT: FAIL`）は `STRICT_AI_VERIFY` の値に関わらず常にブロックされます（Draft PR を除く）。
 - **WIF の厳格化**: 各リポジトリのブランチに対して最小権限の Service Account を紐づけ、ワイルドカード（*）による認証を禁止。
+- **組織監査ログの一元管理**: 組織レベルのデータアクセス監査ログ（`ADMIN_READ`/`DATA_READ`/`DATA_WRITE`）を、権限を持つ Runner SA 管轄の foundation で一本化し、二重管理・州の競合を排除。
 
 ## AIとのフィードバックループ（判例集の二重運用）
 
