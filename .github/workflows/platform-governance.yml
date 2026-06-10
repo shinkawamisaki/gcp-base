@@ -14,7 +14,12 @@ jobs:
   terraform:
     name: 'Apply Org Policies'
     runs-on: ubuntu-latest
-    
+    # GCP 未設定（vars.GCP_PROJECT_ID 空）の環境ではジョブごと skip する。
+    # OSS テンプレは WIF 未配線のため、ガード無しだと auth ステップで必ず
+    # 失敗して赤になる。plan(terraform-plan.yml) や Apply Foundation
+    # (platform-admin.yml) と同じ思想で apply もガードする。
+    if: vars.GCP_PROJECT_ID != ''
+
     defaults:
       run:
         working-directory: governance/org-policies
