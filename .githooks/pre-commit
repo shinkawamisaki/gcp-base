@@ -51,7 +51,8 @@ if command -v checkov >/dev/null 2>&1; then
       echo ""
       echo "[FAIL] Checkov: 違反が検出されました。コミットを中断します。"
       echo "       意図的な除外の場合は .checkov.yaml の skip-check に追記し、"
-      echo "       理由を judgments.md に記録してください（IPO監査対応）。"
+      echo "       理由を同ファイルのコメントに自己完結で明記してください（IPO監査対応）。"
+      echo "       （本テンプレは内部判例ログ logs/ を同梱しないため、除外根拠は .checkov.yaml に記録する）"
       exit 1
     fi
     echo "[PASS] B: Checkov クリア"
