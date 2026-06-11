@@ -70,15 +70,21 @@ export VERTEX_REGION="${VERTEX_REGION:-asia-northeast1}"
 export PROMPTFOO_DISABLE_TELEMETRY=1
 
 cd "$(dirname "$0")/../evals"
-# モデルの一時的な空応答・揺らぎを吸収するため1回リトライする（検閲官本体の
-# リトライ＋フォールバックと同じ思想）。リトライ時はキャッシュを無効化し、
-# 失敗応答の再利用を防ぐ。2回連続で失敗した場合は本物の回帰としてビルドを
-# fail させる。
-if npx -y "promptfoo@${PROMPTFOO_VERSION}" eval --no-progress-bar; then
+# モデルの一時的な空応答・揺らぎ・レートリミットを吸収するため1回リトライする
+# （検閲官本体のリトライ＋フォールバックと同じ思想）。
+# - 並列数を 2 に制限: 既定(4)だと検閲官本体の呼び出しと合わせて Vertex の
+#   分間クォータを食い潰し、429（RateLimitExhaustedError）で全滅し得る
+#   （実検証リポジトリで実際に発生）。
+# - リトライ前に 60 秒待つ: 429 は分間クォータのため、即時リトライは枯渇した
+#   窓にそのまま突っ込んで全滅する。
+# - リトライ時はキャッシュを無効化し、失敗応答の再利用を防ぐ。
+# 2回連続で失敗した場合は本物の回帰としてビルドを fail させる。
+if npx -y "promptfoo@${PROMPTFOO_VERSION}" eval --no-progress-bar --max-concurrency 2; then
   echo "[INFO] 回帰テスト: 全ケース合格しました。"
 else
-  echo "[WARN] 回帰テストに失敗しました。一時的なモデル揺らぎの可能性があるため、キャッシュ無効で1回だけリトライします。"
-  if npx -y "promptfoo@${PROMPTFOO_VERSION}" eval --no-progress-bar --no-cache; then
+  echo "[WARN] 回帰テストに失敗しました。一時的なモデル揺らぎ・レートリミットの可能性があるため、60秒待ってからキャッシュ無効で1回だけリトライします。"
+  sleep 60
+  if npx -y "promptfoo@${PROMPTFOO_VERSION}" eval --no-progress-bar --no-cache --max-concurrency 2; then
     echo "[INFO] 回帰テスト: リトライで全ケース合格しました。"
   else
     echo "[ERROR] 回帰テスト: リトライも失敗しました。本物の回帰としてビルドを fail させます。"
