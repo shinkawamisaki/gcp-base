@@ -199,8 +199,14 @@ flowchart TD
 ### 4.2 terraform plan の自動ゲート化
 現在 `terraform plan` の結果はPRにコメントされるのみであり、破壊的変更を機械的にブロックする仕組みが存在しない。OPA（Open Policy Agent）や Sentinel の導入によるポリシーのコード化（Policy as Code）が今後の課題である。
 
-### 4.3 Datadog アラートの欠如
-AI検証の合否メトリクスはDatadogに送信されているものの、連続FAIL等の異常検知アラートが設定されていない。監視基盤の拡充が必要である。
+### 4.3 AIレビュアー精度の機械検証（promptfoo evals）と Datadog の位置づけ
+AIレビュアー（D）の判定精度は、ゴールデンセット（合格/不合格にすべき diff）への回帰テスト（`evals/` / promptfoo）でマージ前に機械検証する。
+
+- 本番（`pr_reviewer.py`）と同一の `prompts/reviewer_prompt.txt` をテストするため、eval と本番のプロンプト乖離は構造的に発生しない
+- 検閲基準（`.clinerules` / 判例集 / プロンプト / `evals/`）を変更する PR では、Cloud Build（`scripts/run_evals_ci.sh`）が eval を自動実行し、全ケース合格しないとマージできない（手動実行の「打ち忘れ」は構造的に発生しない）。無関係な PR では実行しない（障害半径の限定）
+- 新しい判例の追加時に対応ケースを `evals/cases/` へ追加し、同じ判定ミスの再発を機械検知する（運用詳細は `evals/README.md`）
+
+Datadog 送信（オプション機能）は実行結果の事後可視化であり、精度担保の主手段は上記の事前回帰テストに置く。Datadog 利用時は連続FAIL等の異常検知アラートが未設定という課題が残る。
 
 ### 4.4 GitHub Code Scanning との関係（設計上の決定）
 

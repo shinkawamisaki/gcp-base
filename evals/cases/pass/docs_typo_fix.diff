@@ -1,0 +1,10 @@
+diff --git a/docs/PROJECT_GUIDE.md b/docs/PROJECT_GUIDE.md
+index 1a2b3c4..5d6e7f8 100644
+--- a/docs/PROJECT_GUIDE.md
++++ b/docs/PROJECT_GUIDE.md
+@@ -12,7 +12,7 @@
+ ## 開発者向けセットアップ
+
+-初回セットアップでは `scripts/bootstrap.sh` を実行してくたさい。
++初回セットアップでは `scripts/bootstrap.sh` を実行してください。
+ 実行時に pre-commit フックが自動でセットアップされます。

@@ -1,0 +1,17 @@
+diff --git a/modules/vpc_base/main.tf b/modules/vpc_base/main.tf
+index 1234567..89abcde 100644
+--- a/modules/vpc_base/main.tf
++++ b/modules/vpc_base/main.tf
+@@ -10,3 +10,13 @@ resource "google_compute_network" "main" {
+   auto_create_subnetworks = false
+ }
++
++# ネットワーク管理を一元化するため Shared VPC ホストを有効化する
++resource "google_compute_shared_vpc_host_project" "host" {
++  project = var.host_project_id
++}
++
++resource "google_compute_shared_vpc_service_project" "app" {
++  host_project    = var.host_project_id
++  service_project = var.app_project_id
++}

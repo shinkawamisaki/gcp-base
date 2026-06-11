@@ -70,7 +70,7 @@
 **処理フロー**:
 1.  **差分取得**: GitHub API を使用してPRの差分を取得。
 2.  **機密情報のマスク**: 正規表現によるパスワード・IPのマスク。
-3.  **AIプロンプト構築**: `.clinerules`（憲法）と `logs/active_rules.md`（判例集）と差分を結合。判例集は upsert 運用で行数が一定に保たれる。判例は憲法より優先してプロンプトに指示する。
+3.  **AIプロンプト構築**: 検閲プロンプト本体（`prompts/reviewer_prompt.txt`）に `.clinerules`（憲法）と `logs/active_rules.md`（判例集）と差分を埋め込む。判例集は upsert 運用で行数が一定に保たれる。判例は憲法より優先してプロンプトに指示する。プロンプトを外部ファイル化しているのは、回帰テスト（`evals/` promptfoo）と本番が**同一のプロンプト**を読むことで eval の形骸化を構造的に防ぐため。プロンプト本体も審査基準の一部として `.clinerules` と同様に **base コミットから読む**（「プロンプトを骨抜きにする PR」を骨抜き前のプロンプトで検閲。取得不能時は `STRICT_AI_VERIFY` 契約に従う）。
     *   **審査基準は base コミットから読む（自己参照の遮断）**: 検閲基準（`.clinerules` / `active_rules.md`）は PR 適用後ではなく **PR の base コミット**（GitHub Contents API、`base.sha` 固定）から取得する。これにより「ルールを骨抜きにする PR」を“骨抜き前のルール”で審査でき、ルール削除を同じ diff で見逃す自己参照の穴を塞ぐ。判例集の更新 PR も、未承認の新判例を自らの正当化根拠に使えない（承認は人間が `judgments.md` で行う）。diff 自体は従来どおり PR から取得するため変更内容は審査される。base 取得は PR 内容に左右されない（攻撃者が失敗を誘発不能）ため、一時的な API エラー時のみ警告付きで head 版へフォールバックして可用性を保つ。base SHA を特定できない場合は検閲不能として `STRICT_AI_VERIFY` 契約に従う。
 4.  **Gemini 呼び出し (Vertex AI 経由)**: `gemini-2.5-flash` を使用（`google-genai` + ADC 認証。API キー不要）。
     *   **可用性の多層化（判例 OPS-008）**: fail-closed ゲートは Vertex 障害時にマージを止めるため、①同一構成でリトライ（一時的な 429/503 を吸収、バックオフ付き）→ ②フォールバックモデル → ③フォールバックリージョン、の順に同一 ADC の範囲で自動切替する。**別ベンダーのモデルは使わない**（writer=Claude / reviewer=Gemini の独立性維持・資格情報を増やさないため）。全構成が失敗した場合のみ `STRICT_AI_VERIFY` 契約（true なら error でブロック）に到達する。長時間障害時の緊急マージは break-glass 手順（本書「障害時運用」セクション）による。
@@ -100,6 +100,17 @@ steps:
       - 'COMMIT_SHA=$COMMIT_SHA'
       # Datadogを無効化する場合は false に変更する（デフォルト: true）
       - 'DATADOG_ENABLED=true'
+
+  # 2. AI検閲官の回帰テスト（条件付き強制ゲート。検閲基準を変更する PR でのみ
+  #    ゴールデンセット eval を実行。詳細は evals/README.md）
+  - name: 'node:20'
+    entrypoint: 'bash'
+    args: ['scripts/run_evals_ci.sh']
+    secretEnv: ['GITHUB_TOKEN']
+    env:
+      - 'PROJECT_ID=$PROJECT_ID'
+      - 'PR_NUMBER=$_PR_NUMBER'
+      - 'REPO_FULL_NAME=$REPO_FULL_NAME'
 
 availableSecrets:
   secretManager:

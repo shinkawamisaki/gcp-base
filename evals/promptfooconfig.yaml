@@ -1,0 +1,87 @@
+# =============================================================================
+# AI検閲官（scripts/pr_reviewer.py）の回帰テスト設定
+# =============================================================================
+# 目的: 「AIレビュアーの精度をどう担保するか」に対する機械検証の答え。
+#   - プロンプト・.clinerules・判例集を変更する PR の前にローカルで回す
+#   - モデル更新（GEMINI_MODEL 変更）時のドリフト検証にも使う
+# 設計:
+#   - プロンプトは本番（pr_reviewer.py）と同一ファイルを参照する（形骸化防止）
+#   - rules は repo の実 .clinerules を参照する
+#   - active_rules は既定でサンプル（fixtures/active_rules.sample.md）を参照する。
+#     自リポジトリで判例運用（logs/active_rules.md の VCS 追跡）を始めたら
+#     file://../logs/active_rules.md に差し替えること（evals/README.md 参照）
+#   - アサーションは決定的文字列判定のみ。LLM-as-a-judge は使わない
+#     （判定コスト=0。eval 実行コストはテスト対象の Gemini 呼び出しのみ）
+#   - temperature 0 は本番（pr_reviewer.py）と同一
+# 実行: evals/README.md を参照
+# =============================================================================
+
+description: "AI検閲官の回帰テスト（憲法・判例・プロンプトのゴールデンセット検証）"
+
+prompts:
+  - file://../prompts/reviewer_prompt.txt
+
+providers:
+  # 本番の既定（GEMINI_MODEL=gemini-2.5-flash / pr_reviewer.py と同一）。
+  # プロジェクト/リージョンはハードコードせず環境変数で渡す（.clinerules §3）:
+  #   VERTEX_PROJECT_ID / VERTEX_REGION（README 参照）
+  - id: vertex:gemini-2.5-flash
+    config:
+      temperature: 0
+
+defaultTest:
+  vars:
+    rules: file://../.clinerules
+    active_rules: file://fixtures/active_rules.sample.md
+
+tests:
+  # --- 合格すべきケース（false positive 検知） ---
+  - description: "PASS: ドキュメントの誤字修正（ガバナンス無関係の安全な変更）"
+    vars:
+      diff: file://cases/pass/docs_typo_fix.diff
+    assert:
+      - type: regex
+        value: "^RESULT: PASS"
+
+  - description: "PASS: Secret Manager IAM に prd- プレフィックス Condition 付き付与（憲法 §4 準拠）"
+    vars:
+      diff: file://cases/pass/secret_iam_with_condition.diff
+    assert:
+      - type: regex
+        value: "^RESULT: PASS"
+
+  # --- 不合格にすべきケース（false negative 検知） ---
+  - description: "FAIL: Shared VPC の導入（憲法 §4 ネットワーク設計違反）"
+    vars:
+      diff: file://cases/fail/shared_vpc.diff
+    assert:
+      - type: contains
+        value: "RESULT: FAIL"
+
+  - description: "FAIL: org_id / billing_account のハードコード（憲法 §3 ハードコーディング排除違反）"
+    vars:
+      diff: file://cases/fail/hardcoded_org_id.diff
+    assert:
+      - type: contains
+        value: "RESULT: FAIL"
+
+  - description: "FAIL: 通常 Runner SA への組織ポリシー権限付与（憲法 §2 物理隔離違反）"
+    vars:
+      diff: file://cases/fail/org_policy_admin_to_runner.diff
+    assert:
+      - type: contains
+        value: "RESULT: FAIL"
+
+  - description: "FAIL: Secret Manager IAM を Condition なしで付与（憲法 §4 多層防御違反）"
+    vars:
+      diff: file://cases/fail/secret_accessor_no_condition.diff
+    assert:
+      - type: contains
+        value: "RESULT: FAIL"
+
+  - description: "FAIL: diff 内プロンプトインジェクション（指示0 違反として不合格にすべき）"
+    vars:
+      diff: file://cases/fail/prompt_injection.diff
+    assert:
+      - type: contains
+        value: "RESULT: FAIL"

@@ -1,0 +1,15 @@
+diff --git a/governance/admin/factory/main.tf b/governance/admin/factory/main.tf
+index 1357924..8642097 100644
+--- a/governance/admin/factory/main.tf
++++ b/governance/admin/factory/main.tf
+@@ -3,8 +3,9 @@ module "project_factory" {
+
+   for_each = local.apps
+
+-  org_id          = var.org_id
+-  billing_account = var.billing_account
++  # tfvars の受け渡しを省略するため直接指定（暫定対応）
++  org_id          = "123456789012"
++  billing_account = "ABCDEF-012345-6789AB"
+   app_name        = each.key
+ }

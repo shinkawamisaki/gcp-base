@@ -20,6 +20,8 @@
     - Google Cloud CIS Benchmark に基づく Checkov が `governance/` と `modules/` を対象に MEDIUM 以上の脆弱性をハードフェイルでブロック。客観的なIAM・ネットワーク・削除保護チェックはツールに委譲し、AIは設計判断に集中します。
 8.  **Datadog メトリクス監視（ON/OFF 切り替え可）**
     - AI検閲の結果（pass/fail）を `result` / `category` / `author` 等のリッチなタグ付きで Datadog へ送信。`DATADOG_ENABLED=false` 1行で無効化可能。
+9.  **AI レビュアーの回帰テスト（promptfoo evals）**
+    - 「AIにレビューさせているが、そのAI自身の精度は誰が保証するのか？」への答え。AI検閲官の判定精度をゴールデンセット（合格/不合格にすべき diff・**プロンプトインジェクション耐性ケース含む**）への回帰テストで機械検証します。本番と同一のプロンプトをテストし、検閲基準を変更する PR では CI が自動実行（全ケース合格しないとマージ不可）。判定は決定的文字列マッチのみで LLM-as-a-judge を使わないため判定側の AI 課金はゼロ（実行コストはテスト対象の Gemini 呼び出し分の Vertex AI 従量課金のみ）・promptfoo はサインアップ不要の OSS（`evals/` 参照）。
 
 ## AI オーケストレーション全体像 (Architecture Overview)
 
