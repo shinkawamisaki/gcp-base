@@ -1,0 +1,15 @@
+diff --git a/governance/admin/foundation/iam.tf b/governance/admin/foundation/iam.tf
+index 2468ace..13579bd 100644
+--- a/governance/admin/foundation/iam.tf
++++ b/governance/admin/foundation/iam.tf
+@@ -20,3 +20,10 @@ resource "google_project_iam_member" "runner_sa_base" {
+   role    = "roles/viewer"
+   member  = "serviceAccount:${google_service_account.terraform_runner.email}"
+ }
++
++# 組織ポリシーの apply も Runner で一括実行できるようにする（運用簡素化）
++resource "google_organization_iam_member" "runner_org_policy_admin" {
++  org_id = var.org_id
++  role   = "roles/orgpolicy.policyAdmin"
++  member = "serviceAccount:${google_service_account.terraform_runner.email}"
++}

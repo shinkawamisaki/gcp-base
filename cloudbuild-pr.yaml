@@ -15,6 +15,22 @@ steps:
       # コンテナの entrypoint でワークスペース内のスクリプトを直接実行する。
     dir: '.' # ソースコードがマウントされたディレクトリ
 
+  # 2. AI検閲官の回帰テスト（条件付き強制ゲート）
+  #    検閲基準（.clinerules / 判例集 / プロンプト / evals/）を変更する PR でのみ
+  #    ゴールデンセット eval を実行し、全ケース合格しないとビルドを fail させる。
+  #    「ルール変更前に手で eval を打つ」運用の打ち忘れを構造的に排除する。
+  #    認証は本ビルドの SA によるメタデータ ADC（検閲官と同一・新規資格情報なし）。
+  #    詳細は evals/README.md を参照。
+  - name: 'node:20'
+    entrypoint: 'bash'
+    args: ['scripts/run_evals_ci.sh']
+    secretEnv: ['GITHUB_TOKEN']
+    env:
+      - 'PROJECT_ID=$PROJECT_ID'
+      - 'PR_NUMBER=$_PR_NUMBER'
+      - 'REPO_FULL_NAME=$REPO_FULL_NAME'
+    dir: '.'
+
 availableSecrets:
   secretManager:
     - versionName: projects/$PROJECT_ID/secrets/github-token-pr-reviewer/versions/latest
