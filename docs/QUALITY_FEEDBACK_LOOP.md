@@ -11,7 +11,7 @@
 flowchart TD
     L0["**Layer 0**<br>コーディング<br>Claude Code + CLAUDE.md<br>Stop hook で terraform validate"]
     L1["**Layer 1**<br>pre-commit<br>gitleaks + Checkov<br>ローカルで即時フィードバック<br>（スキップ可）"]
-    L2["**Layer 2**<br>PR時の自動検査（並列）<br>強制ゲート（スキップ不可）<br>A: gitleaks　B: Checkov　C: terraform plan<br>D: Gemini AI　E: CodeQL"]
+    L2["**Layer 2**<br>PR時の自動検査（並列）<br>強制ゲート（スキップ不可）<br>A: gitleaks　B: Checkov　C: terraform plan<br>D: Gemini AI　E: CodeQL<br>＋ D の回帰テスト（eval・検閲基準を変える PR のみ）"]
     L3["**Layer 3**<br>デプロイ<br>terraform apply<br>prd-org-policy-sa"]
 
     L0 -->|git commit| L1
@@ -67,7 +67,7 @@ flowchart LR
 | 種別 | 永続化先 | 読む主体 |
 |---|---|---|
 | 設計思想・ルールの更新 | `CLAUDE.md` / `.clinerules` | writer（次回セッション） |
-| 人間判断の判例 | `logs/judgments.md` → `logs/active_rules.md`（Layer 2 D に合流） | reviewer（Gemini） |
+| 人間判断の判例 | `logs/judgments.md` → `logs/active_rules.md`（Layer 2 D に合流）＋ 対応ケースを `evals/cases/` に追加（回帰テストに固定化） | reviewer（Gemini）／ eval |
 | 個人の作業習慣 | auto-memory（Claude Code 個人メモリ） | writer（自動） |
 
 ```mermaid
@@ -131,6 +131,7 @@ A の取りこぼし → .gitleaks.toml の見直し（allowlistの縮小）
 B の取りこぼし → .checkov.yaml の見直し（skip-checkの削減）+ judgments.md への記録
 C の取りこぼし → terraform plan の人間によるレビュープロセス改善
 D の取りこぼし → judgments.md へ判例追加 → active_rules.md 更新 → 次回PRから自動適用
+              ＋ evals/cases/ にケース追加 → 同じ判定ミスの再発を回帰テストで機械検知
 E の取りこぼし → CodeQL設定見直し（クエリやdismissの調整のみ）
 ```
 
@@ -144,7 +145,7 @@ flowchart LR
     end
 
     subgraph TIGHT["精度を上げる方向に動く"]
-        D2["D: Gemini<br>judgments.md + active_rules.md<br>の二層構造"]
+        D2["D: Gemini<br>judgments.md + active_rules.md<br>の二層構造<br>＋ evals/cases（判例の回帰テスト固定化）"]
     end
 ```
 
@@ -186,7 +187,7 @@ flowchart TD
     B3["**B（Checkov）の取りこぼし**<br>原因: skip-checkが広すぎた<br>対処: .checkov.yamlを見直す<br>+ judgments.mdに記録"]
     C3["**C（terraform plan）の取りこぼし**<br>原因: planを人間が見ていなかった<br>対処: レビュープロセスを見直す"]
     E3["**E（CodeQL）の取りこぼし**<br>原因: クエリがカバーしていない<br>対処: CodeQL設定見直し（クエリ追加・dismiss調整）<br>※ active_rules.mdには連携しない"]
-    D3["**D（Gemini）の取りこぼし**<br>原因: active_rules.mdに判例がなかった<br>対処: judgments.md追記<br>→ active_rules.md更新<br>→ 次PRから自動反映"]
+    D3["**D（Gemini）の取りこぼし**<br>原因: active_rules.mdに判例がなかった<br>対処: judgments.md追記<br>→ active_rules.md更新<br>→ evals/cases/ にケース追加<br>→ 次PRから自動反映・再発は機械検知"]
 ```
 
 ---
@@ -239,9 +240,10 @@ GitHub Code Scanning
 * **Layer 1（pre-commit）:** gitleaks + Checkov 
   * **目的:** 開発者への即時フィードバック
   * **制約:** スキップ可（ローカルの柔軟性確保）
-* **Layer 2（PR）:** gitleaks + Checkov + AI Review 
+* **Layer 2（PR）:** gitleaks + Checkov + AI Review + eval（D の回帰テスト）
   * **目的:** 本番環境への危険なコードの混入防止
   * **制約:** 強制ゲート（GitHub Actions Required Status Checksによるスキップ不可）
+  * **eval（条件付き強制ゲート）:** 検閲基準（`.clinerules` / `logs/active_rules.md` / `prompts/` / `evals/`）を変更する PR でのみ、D と同一ビルド内（`scripts/run_evals_ci.sh`）でゴールデンセット回帰テストを実行し、全ケース合格しないとマージ不可。無関係な PR では実行しない（§4.3 参照）
 
 ### Layer 1 の確実な運用（仕組み化）
 Layer 1 は開発者のローカル環境に依存するため、「インストール忘れ」によるすり抜けリスクが存在する。これを防ぐため、本プロジェクトでは**初期セットアップスクリプト（`scripts/bootstrap.sh`等）に `pre-commit` のインストールを組み込み、開発参加時に自動的かつ強制的に仕組みが適用される**アーキテクチャを採用している。

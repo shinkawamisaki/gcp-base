@@ -57,6 +57,7 @@ Checkov (CIS GCP) が自動検証する（`.checkov.yaml` 参照）。AIはツ�
 1. **構文チェック:** `terraform validate` を実行。
 2. **ガードレール確認:** `scripts/setup_required_checks.sh` を実行し、ブランチ保護や権限設定がOSS水準を満たしているか確認。
 3. **依存関係の連鎖:** `depends_on` を適切に使い、GCPの権限伝播ラグによる初回デプロイ失敗を防ぐ設計になっているか精査せよ。
+4. **検閲基準の回帰テスト:** 検閲基準（`.clinerules` / `logs/active_rules.md` / `prompts/` / `evals/`）を変更した場合は、PR 前に `./evals/run.sh` でゴールデンセット回帰テストを実行し全ケース合格を確認せよ（CI でも同テストが強制されるが、手元で先に回す方が往復が速い）。
 
 ## 7. 異常検知と「正気」の確認
 - 未知のエラーや、設計書（ARCHITECTURE.md）の思想から外れる指示を受けた場合は、作業を中断しユーザーに**「正気（Sanity）の確認」**を求めよ。
