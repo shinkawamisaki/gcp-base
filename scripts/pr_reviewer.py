@@ -209,7 +209,13 @@ def send_datadog_metrics(result, is_draft, pr_author, category=None):
 # ==============================================================================
 def redact_sensitive_info(text):
     # 情報漏洩の防止と静的解析(SAST)対応のため、AIに送る前にマスク
-    text = re.sub(r'(?i)(password|secret|token|api[_-]?key|credentials)["\'\s:=]+[^\s"\'},]+', r'\1: [REDACTED]', text)
+    # 変数参照（${VAR} / $VAR / {var} / process.env.X / os.environ[...]）は秘密の
+    # 「実値」ではないためマスク対象から除外する（negative lookahead）。
+    # 参照までマスクすると diff 自体が改変され、検閲官が「壊れた・不正なコード」と
+    # 誤認する false positive を生む（実例: `token ${GITHUB_TOKEN}` という正当な
+    # 環境変数参照が `token: [REDACTED]}` に化け、FAIL 判定された）。
+    # 実値（英数字の生トークン等）は $ や { で始まらないため、保護範囲は後退しない。
+    text = re.sub(r'(?i)(password|secret|token|api[_-]?key|credentials)["\'\s:=]+(?!\$|\{|process\.env|os\.environ)[^\s"\'},]+', r'\1: [REDACTED]', text)
     text = re.sub(r'\b(?:10\.|172\.(?:1[6-9]|2[0-9]|3[0-1])\.|192\.168\.)[0-9.]+\b', '[REDACTED_IP]', text)
     return text
 
