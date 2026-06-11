@@ -8,6 +8,8 @@ on:
     paths:
       - 'governance/**'
       - 'modules/**'
+      - '.checkov.yaml'                                   # skip 設定変更で SARIF を確実に再アップロード（古い Code Scanning アラートを閉じる）
+      - '.github/workflows/checkov-governance.yml'
   workflow_dispatch:
 
 permissions:
@@ -27,6 +29,7 @@ jobs:
           filters: |
             tf:
               - 'governance/**'
+              - '.checkov.yaml'
               - '.github/workflows/checkov-governance.yml'
 
       - name: Run Checkov on governance/ (CIS GCP)
@@ -67,6 +70,7 @@ jobs:
           filters: |
             tf:
               - 'modules/**'
+              - '.checkov.yaml'
               - '.github/workflows/checkov-governance.yml'
 
       - name: Run Checkov on modules/ (CIS GCP)
