@@ -40,6 +40,9 @@
 | `governance/admin/foundation/build.tf` | 修正/追記 | Artifact Registry, Cloud Build Trigger, IAM権限の定義 |
 | `governance/admin/foundation/secrets.tf` | 修正/追記 | GitHub Token等のシークレット定義 |
 | `.githooks/pre-commit` | 修正 | `cross_verify.sh` の呼び出しを削除（フォーマッタ等は残す） |
+| `prompts/reviewer_prompt.txt` | 新規作成（2026-06） | 検閲プロンプト本体（本番と eval が同一ファイルを参照・base コミットから読む審査基準） |
+| `evals/` | 新規作成（2026-06） | AI検閲官の回帰テスト（promptfoo・ゴールデンセット。運用は `evals/README.md`） |
+| `scripts/run_evals_ci.sh` | 新規作成（2026-06） | eval の CI 条件付き強制ゲート（検閲基準を変更する PR でのみ実行） |
 
 ## 3. 各コンポーネントの実装詳細
 
