@@ -78,6 +78,10 @@ if npx -y "promptfoo@${PROMPTFOO_VERSION}" eval --no-progress-bar; then
   echo "[INFO] 回帰テスト: 全ケース合格しました。"
 else
   echo "[WARN] 回帰テストに失敗しました。一時的なモデル揺らぎの可能性があるため、キャッシュ無効で1回だけリトライします。"
-  npx -y "promptfoo@${PROMPTFOO_VERSION}" eval --no-progress-bar --no-cache
-  echo "[INFO] 回帰テスト: リトライで全ケース合格しました。"
+  if npx -y "promptfoo@${PROMPTFOO_VERSION}" eval --no-progress-bar --no-cache; then
+    echo "[INFO] 回帰テスト: リトライで全ケース合格しました。"
+  else
+    echo "[ERROR] 回帰テスト: リトライも失敗しました。本物の回帰としてビルドを fail させます。"
+    exit 1
+  fi
 fi
