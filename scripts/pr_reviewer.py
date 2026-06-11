@@ -346,13 +346,20 @@ def main():
     diff_content_masked = redact_sensitive_info(diff_content)
 
     # プロンプトの構築（テンプレートは base コミットから取得済み）。
-    # 置換順序: 攻撃者が内容を制御できる diff を最後に埋めることで、diff 内の
-    # プレースホルダ文字列が他の変数置換に干渉しないようにする。
-    prompt = (
-        prompt_template
-        .replace("{{rules}}", rules_content_masked)
-        .replace("{{active_rules}}", active_rules_masked or "（判例なし）")
-        .replace("{{diff}}", diff_content_masked)
+    # 単一パス置換: 連鎖 .replace() だと、先に埋めた値（憲法・判例）の中に後続の
+    # プレースホルダ文字列（例: {{diff}}）が含まれていた場合、その位置へ攻撃者制御の
+    # diff を <diff> デリミタ外に再注入し得る。count=1 でも「値の中のトークンが先に
+    # マッチして本物のプレースホルダが残る」逆の失敗が起きる。re.sub の単一パスなら
+    # 置換対象はテンプレート由来のプレースホルダのみで、埋めた値は再走査されない。
+    placeholder_values = {
+        "rules": rules_content_masked,
+        "active_rules": active_rules_masked or "（判例なし）",
+        "diff": diff_content_masked,
+    }
+    prompt = re.sub(
+        r"\{\{(rules|active_rules|diff)\}\}",
+        lambda m: placeholder_values[m.group(1)],
+        prompt_template,
     )
 
     # Gemini APIの呼び出し（Vertex AI バックエンド / ADC 認証）
