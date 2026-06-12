@@ -79,11 +79,18 @@ def get_base_file_content(path, base_sha, local_path=None):
     diff そのものは従来どおり PR から取得するため、変更内容は審査される。
 
     取得は GitHub Contents API（base_sha 固定・固定パス）で行う。この取得の
-    成否は PR の内容に左右されない（攻撃者が失敗を誘発できない）ため、一時的な
-    API エラー時はローカル（PR head）版へ警告付きでフォールバックして可用性を
-    保つ。base に存在しない（404）= 新規追加ファイルは「緩める対象の旧ルールが
-    無い」ため head 版で問題ない。
-    戻り値: (内容, ソース種別 'base'|'local'|'empty')
+    成否は PR の内容に左右されない（攻撃者が失敗を誘発できない）ため、*一時的な*
+    API エラー時はローカル（PR head）版へ警告付きでフォールバックして可用性を保つ。
+
+    【404 は別扱い（head フォールバック禁止）】
+    404 = base コミットにファイルが無い、は一時的エラーと違い、PR 作成者が
+    「基準ファイルを新規追加するだけ」で意図的に作り出せる状態である。
+    ここで head 版へフォールバックすると、PR が持ち込んだ未承認の基準
+    （偽の判例を書いた active_rules.md 等）がプロンプトの信頼領域
+    （<diff> デリミタの外）に注入され、この関数が閉じるべき自己参照の穴が
+    再び開く。よって 404 は 'absent' として返し、呼び出し側で安全側の
+    デフォルトに倒す。新規追加した基準ファイルは「次の PR から有効」とする。
+    戻り値: (内容, ソース種別 'base'|'local'|'absent'|'empty')
     """
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
@@ -96,11 +103,13 @@ def get_base_file_content(path, base_sha, local_path=None):
         if resp.status_code == 200:
             return resp.text, "base"
         if resp.status_code == 404:
-            # base に存在しない＝この PR で新規追加。旧ルールが無いので head 可
-            print(f"[INFO] {path} は base に存在しません（新規追加）。head 版を使用します。")
-        else:
-            # 一時的な API エラー等。head へフォールバック（§5: 詳細は出さない）
-            print(f"[WARN] {path} の base 版取得に失敗（status={resp.status_code}）。head 版へフォールバックします。")
+            # base に存在しない＝この PR で新規追加の可能性。head 版を採用すると
+            # PR 制御下の基準で自分を審査できてしまうため不採用（自己参照の遮断）
+            print(f"[INFO] {path} は base に存在しません（この PR で新規追加？）。"
+                  "head 版は採用しません（自己参照の遮断）。次の PR から有効になります。")
+            return "", "absent"
+        # 一時的な API エラー等。head へフォールバック（§5: 詳細は出さない）
+        print(f"[WARN] {path} の base 版取得に失敗（status={resp.status_code}）。head 版へフォールバックします。")
     except Exception:
         print(f"[WARN] {path} の base 版取得で例外。head 版へフォールバックします。(詳細は非表示)")
 
@@ -313,26 +322,31 @@ def main():
         set_commit_status("success", "AI verification skipped (no base ref)")
         sys.exit(0)
 
+    # 安全側デフォルト: base から取得できない（absent/empty）基準は「無い」として
+    # 審査する。PR で新規追加した基準ファイルは次の PR から有効（自己参照の遮断）。
     rules_content, rules_src = get_base_file_content(".clinerules", base_sha)
-    if rules_src == "empty":
-        print("[WARN] .clinerules が取得できません。")
+    if rules_src in ("empty", "absent"):
+        rules_content = ""
+        print("[WARN] .clinerules が base から取得できません。一般ベストプラクティスで審査します。")
     else:
         print(f"[INFO] .clinerules を読み込みました（source={rules_src}）。")
 
     # 判例集（重複なし・最新判断のみ。証跡は judgments.md を参照）
     active_rules_content, ar_src = get_base_file_content("logs/active_rules.md", base_sha)
-    if ar_src == "empty":
-        print("[WARN] logs/active_rules.md が取得できません。判例なしで審査します。")
+    if ar_src in ("empty", "absent"):
+        active_rules_content = ""
+        print("[WARN] logs/active_rules.md が base から取得できません。判例なしで審査します。")
     else:
         print(f"[INFO] 判例集 (active_rules.md) を読み込みました（source={ar_src}）。")
 
     # 検閲プロンプト本体も審査基準の一部であるため、.clinerules と同様に
     # base コミットから読む（自己参照の遮断）。「プロンプトを骨抜きにする PR」を
     # 骨抜き前のプロンプトで検閲する。プロンプト無しでは検閲が成立しないため、
-    # 取得不能時は SDK 欠落・Vertex 障害と同じ STRICT_AI_VERIFY 契約に従う。
+    # 取得不能（absent 含む: PR が持ち込んだ head 版プロンプトは採用しない）時は
+    # SDK 欠落・Vertex 障害と同じ STRICT_AI_VERIFY 契約に従う（true なら fail-closed）。
     prompt_template, tpl_src = get_base_file_content(PROMPT_TEMPLATE_PATH, base_sha)
-    if tpl_src == "empty":
-        print("[ERROR] 検閲プロンプト (prompts/reviewer_prompt.txt) が取得できません。")
+    if tpl_src in ("empty", "absent"):
+        print("[ERROR] 検閲プロンプト (prompts/reviewer_prompt.txt) が base から取得できません。")
         if STRICT_AI_VERIFY:
             set_commit_status("error", "AI verification prompt missing")
             sys.exit(2)
