@@ -380,14 +380,20 @@ def main():
     # 結果の判定とフィードバック
     pr_author = pr_info.get("user", {}).get("login", "unknown")
 
-    if "RESULT: FAIL" in result_text:
+    # 判定は PASS / FAIL とも「行頭の RESULT: 行」のみを見る。部分文字列マッチだと、
+    # レビュー本文が判定形式を解説して「RESULT: FAIL」を引用しただけで、1行目が
+    # RESULT: PASS の合格レビューまで FAIL に倒れる（姉妹リポ ai-pr-reviewer-action
+    # の dogfood PR #4 で実際に発生）。FAIL を先に評価するため、行頭の両判定が
+    # 併存した場合は安全側（FAIL）に倒れる。
+    if re.search(r"^RESULT:\s*FAIL\b", result_text, re.MULTILINE):
         print("[INFO] 検閲結果: 違反を検知しました。")
 
         # CATEGORY 行をパース（Datadog タグ用）
         category_match = re.search(r"CATEGORY:\s*(\w+)", result_text)
         violation_category = category_match.group(1).lower() if category_match else "other"
 
-        clean_body = re.sub(r"RESULT:\s*FAIL\n?", "", result_text)
+        # 判定行の除去も行頭アンカーで行い、本文中の引用を巻き込まない
+        clean_body = re.sub(r"^RESULT:\s*FAIL\s*$\n?", "", result_text, flags=re.MULTILINE)
         clean_body = re.sub(r"CATEGORY:\s*\w+\n?", "", clean_body).strip()
         comment_body = f"### 🤖 AI検閲官からのアドバイス\n\n🚨 **プロジェクト憲法への違反またはリスクを検知しました。**\n\n{clean_body}"
         post_or_update_comment(comment_body)
