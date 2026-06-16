@@ -108,10 +108,23 @@ def get_base_file_content(path, base_sha, local_path=None):
             print(f"[INFO] {path} は base に存在しません（この PR で新規追加？）。"
                   "head 版は採用しません（自己参照の遮断）。次の PR から有効になります。")
             return "", "absent"
-        # 一時的な API エラー等。head へフォールバック（§5: 詳細は出さない）
-        print(f"[WARN] {path} の base 版取得に失敗（status={resp.status_code}）。head 版へフォールバックします。")
+        # head フォールバックは「一時的エラー時のみ」に限定する（SPEC_AI_VERIFIER_CLOUDBUILD.md）。
+        # 401/403 等の恒久エラーまで head を採用すると、PR 制御下のファイルで自分を
+        # 審査できてしまい自己参照遮断が再び弱まる。一時(429/5xx)のみフォールバックし、
+        # それ以外は head 不採用＝安全側(empty)に倒す。
+        if resp.status_code in (429, 500, 502, 503, 504):
+            print(f"[WARN] {path} の base 版取得に一時失敗（status={resp.status_code}）。head 版へフォールバックします。")
+        else:
+            print(f"[ERROR] {path} の base 版取得に失敗（status={resp.status_code}）。"
+                  "恒久エラーのため head 版は採用しません（自己参照の遮断）。")
+            return "", "empty"
+    except requests.RequestException:
+        # 通信・タイムアウト等の一時的エラーのみ head フォールバック対象とする
+        print(f"[WARN] {path} の base 版取得で通信例外。head 版へフォールバックします。(詳細は非表示)")
     except Exception:
-        print(f"[WARN] {path} の base 版取得で例外。head 版へフォールバックします。(詳細は非表示)")
+        # 想定外の例外は head を採用せず安全側に倒す。§5: スタックトレースは出さない。
+        print(f"[ERROR] {path} の base 版取得で想定外の例外。head 版は採用しません。(詳細は非表示)")
+        return "", "empty"
 
     # フォールバック: ローカル（PR head）版
     lp = local_path or path
