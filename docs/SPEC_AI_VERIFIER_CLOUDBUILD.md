@@ -35,6 +35,7 @@
 | :--- | :--- | :--- |
 | `docker/ai-verifier/Dockerfile` | 新規作成 | AI検閲官の実行環境（Python 3.11ベース） |
 | `docker/ai-verifier/requirements.txt` | 新規作成 | 依存ライブラリ（`google-genai`(Vertex AI), `requests`, `datadog` 等） |
+| `scripts/build_ai_verifier.sh` | 新規作成（2026-06） | 上記イメージを `infra-tools/ai-verifier:latest` に build & push するブートストラップ（鶏と卵の解消。詳細は §3.5） |
 | `scripts/pr_reviewer.py` | 新規作成 | AI検閲のメインロジック（`cross_verify.sh` のPython移植版） |
 | `cloudbuild-pr.yaml` | 新規作成 | PR時に発火するCloud Buildのパイプライン定義 |
 | `governance/admin/foundation/build.tf` | 修正/追記 | Artifact Registry, Cloud Build Trigger, IAM権限の定義 |
@@ -140,6 +141,41 @@ Terraformで以下のリソースを構築（または追記）します。
     *   `roles/storage.objectAdmin` (Changelogバケットへの書き込み用)
     *   `roles/aiplatform.user` (Vertex AI / Gemini 呼び出し用)
 
+### 3.5 イメージのブートストラップ build & push (`scripts/build_ai_verifier.sh`)
+
+**鶏と卵の問題**: §3.3 の `cloudbuild-pr.yaml` と §3.4 の Cloud Build トリガーは、起動時に
+`infra-tools/ai-verifier:latest` を **pull して実行**する。つまり「PR を検閲する Cloud Build」を
+動かすには、その前段で **一度イメージを焼いて push しておく初期化（ブートストラップ）** が要る。
+この工程が無いと、GCP 接続直後の最初の PR で「イメージ不在」により Cloud Build が pull に失敗する
+（派生先で実際に顕在化）。`build.tf` はレジストリ（箱）を作り Cloud Build SA に `reader` を付与する
+だけで、**イメージを push する主体はリポ内に存在しない**ため、この穴をコードで塞ぐ。
+
+**方式（ローカル build を採用した理由）**: イメージ焼きは PR ごとのホットパスではなく、
+`Dockerfile` / `requirements.txt` を変更したときだけ実行する低頻度のブートストラップ操作である。
+ここに専用 SA・logs バケット・追加 IAM を足す Cloud Build 方式は過剰（org policy で Cloud Build は
+user-managed SA 必須のため、`gcloud builds submit` 方式は SA 指定＋logs バケット＋`infra-tools` への
+`artifactregistry.writer` 付与が追加で要る）。実行者の Owner / `artifactregistry.writer` 権限と
+ローカル Docker で完結する `scripts/build_ai_verifier.sh` が、低頻度のブートストラップに比例した
+最小構成である。将来「ローカル Docker 不要・完全 SA 化」が必要になったら、その時点で専用 SA と
+logs バケットを設計して Cloud Build 方式へ移行する。
+
+**実行タイミング**:
+1. `governance/admin/foundation` を `terraform apply`（`infra-tools` レジストリの箱が作られる）。
+2. **初回 PR を出す前に** `./scripts/build_ai_verifier.sh` を実行してイメージを push する。
+3. 以後、`Dockerfile` / `requirements.txt` / `scripts/pr_reviewer.py` の依存を変えたときに再実行する。
+
+```bash
+# tfvars から PROJECT_ID / REGION を読み、build & push（実行前に確認プロンプトあり）
+./scripts/build_ai_verifier.sh
+
+# 実行内容だけ確認（build/push しない）
+./scripts/build_ai_verifier.sh --dry-run
+```
+
+スクリプトは Apple Silicon 等の arm64 開発機でも Cloud Build 実行基盤（amd64）で動くよう
+`--platform linux/amd64 --provenance=false` を明示し、push 前に `infra-tools` レジストリの存在を
+確認して「Terraform 未 apply」を分かりやすく案内する。
+
 ## 4. AI (Cline) への実装指示
 
 この設計書に基づき、以下のステップで実装を進めてください。
@@ -149,6 +185,7 @@ Terraformで以下のリソースを構築（または追記）します。
 *   **Step 3**: `cloudbuild-pr.yaml` をプロジェクトルートに作成する。
 *   **Step 4**: `governance/admin/foundation/` 配下のTerraformコードを修正し、Cloud Buildトリガー、Artifact Registry、IAM権限、Secret Manager定義を追加する。
 *   **Step 5**: ローカルの `.githooks/pre-commit` から `cross_verify.sh` の呼び出しを削除し、ローカル検証からクラウド検証への切り替えを完了させる。
+*   **Step 6（ブートストラップ／§3.5）**: `scripts/build_ai_verifier.sh` を作成する。これは Step 4 の Terraform apply 後・**初回 PR を出す前に**実行し、`infra-tools/ai-verifier:latest` を build & push してイメージ不在による Cloud Build 起動失敗（鶏と卵）を防ぐ。Dockerfile / requirements 変更時に再実行する運用も本スクリプトに集約する。
 
 ## 5. 障害時運用（break-glass）
 
