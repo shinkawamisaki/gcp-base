@@ -93,15 +93,18 @@ echo -e "請求アカウントの紐付けを確認中..."
 MAX_RETRIES=5
 for i in $(seq 1 $MAX_RETRIES); do
   set +e # エラーでも止まらないようにする
-  ERROR_MSG=$(gcloud billing projects link "$PROJECT_ID" --billing-account="$BILLING_ID" 2>&1)
-  LINK_STATUS=$?
+  gcloud billing projects link "$PROJECT_ID" --billing-account="$BILLING_ID" >/dev/null 2>&1
+  # 終了コードではなく「実際に請求が有効か」で判定する。
+  # 既にリンク済みの再実行では link コマンドが非0を返すことがあり、状態は正常なのに
+  # 「失敗」と誤表示されて紛らわしいため、真の状態（billingEnabled）を成功条件にする。
+  BILLING_ENABLED=$(gcloud billing projects describe "$PROJECT_ID" --format='value(billingEnabled)' 2>/dev/null)
   set -e # 戻す
-  
-  if [ $LINK_STATUS -eq 0 ]; then
-    echo -e "${GREEN}[OK] 請求アカウントの紐付けに成功しました。${NC}"
+
+  if [ "$BILLING_ENABLED" = "True" ]; then
+    echo -e "${GREEN}[OK] 請求アカウントの紐付けを確認しました。${NC}"
     break
   fi
-  
+
   if [ $i -eq $MAX_RETRIES ]; then
     echo -e "${RED}[ERROR] 請求アカウントの紐付けに失敗しました。${NC}"
     # §5: 生のエラー出力（請求アカウントID等の内部情報を含み得る）はログに出さず抽象化する。
@@ -136,9 +139,10 @@ for i in $(seq 1 $MAX_API_RETRIES); do
   # これにより、Terraform 実行時に「SA が存在しない」というエラーを物理的に回避します。
   gcloud beta services identity create --service=billingbudgets.googleapis.com --project="$PROJECT_ID" >/dev/null 2>&1 || true
 
-  # 3. Runner SA 権限で予算一覧が取得できるかテストする（権限の伝播待ち）
-  if gcloud billing budgets list --billing-account="$BILLING_ID" \
-     --impersonate-service-account="$RUNNER_SA_EMAIL" --limit=1 >/dev/null 2>&1; then
+  # 3. Budget API（billingbudgets）が実際に応答するかを確認する（サービスエージェント有効化の伝播待ち）。
+  #    呼び出し元（bootstrap 実行者）の権限で確認する。Runner SA はこの時点では未作成（167行）で、
+  #    請求権限の付与も後段（242行）のため、SA を impersonate すると初回フル実行では原理的に通らない。
+  if gcloud billing budgets list --billing-account="$BILLING_ID" --limit=1 >/dev/null 2>&1; then
 
     echo -e "${GREEN}[OK] Budget API サービスエージェントのアクティベートを確認しました。${NC}"
     BUDGET_API_SUCCESS=true
@@ -155,11 +159,14 @@ for i in $(seq 1 $MAX_API_RETRIES); do
 done
 
 # C. 残りの API を一括有効化
+# aiplatform: AI検閲官(scripts/pr_reviewer.py)と監査ボット(weekly_check)が Vertex AI(Gemini)を
+#   ADC で呼び出すために必須。未有効だと全 Vertex 呼び出しが失敗し、fail-open 構成
+#   (STRICT_AI_VERIFY=false)では検閲ゲートが素通り(no-op)で緑になってしまう。明示有効化する。
 gcloud services enable \
   iam.googleapis.com iamcredentials.googleapis.com storage.googleapis.com \
   sts.googleapis.com logging.googleapis.com orgpolicy.googleapis.com \
   securitycenter.googleapis.com secretmanager.googleapis.com \
-  compute.googleapis.com --project="$PROJECT_ID"
+  compute.googleapis.com aiplatform.googleapis.com --project="$PROJECT_ID"
 
 # --- 4. Terraform Runner SA の作成 ---
 if ! gcloud iam service-accounts describe "$RUNNER_SA_EMAIL" --project="$PROJECT_ID" >/dev/null 2>&1; then
