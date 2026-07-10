@@ -41,13 +41,18 @@ variable "deletion_policy" {
 variable "default_apis" {
   description = "新しく作成されるプロジェクトで自動的に有効化する API リスト"
   type        = list(string)
-  default     = [
+  default = [
     "compute.googleapis.com",
     "storage.googleapis.com",
     "sqladmin.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
-    "billingbudgets.googleapis.com"
+    "billingbudgets.googleapis.com",
+    # 実アプリの Terraform は data.google_project 等で Resource Manager API を要求する。
+    # 未有効だと apply の plan 段階（data source 解決）で 403 になり init/apply が死ぬため、
+    # 全プロジェクトで base として有効化する。serviceusage は API 有効化自体の基盤。
+    "cloudresourcemanager.googleapis.com",
+    "serviceusage.googleapis.com"
   ]
 }
 

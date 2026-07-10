@@ -134,6 +134,77 @@ resource "google_project_iam_member" "manager_sa_privilege" {
   # checkov:skip=CKV_GCP_49: "Manager SA role grant is intentional per Handover strategy (judgments.md)"
 }
 
+# 5-3b. Manager SA 追加権限: editor に無い「*.setIamPolicy と Firestore 作成」だけを
+#       外科的に補う最小カスタムロール（実アプリの deploy に必須・sample-app では露見せず）。
+#   - 背景: roles/editor は resource/project の setIamPolicy と datastore.databases.create を
+#     持たない。そのため Cloud Functions の invoker(allUsers)付与・Pub/Sub publisher付与・
+#     secret/SA/bucket の IAM 設定・Firestore(default) 作成が deploy 時に 403 になる。
+#   - 最小権限: 広い *.admin ロールを積むのではなく、欠けている権限だけを列挙したカスタムロール。
+#   - 職務分掌: prd は Runner SA が deploy するため付与しない（非prd=manager-sa deploy のみ）。
+#     付与しても影響範囲は各アプリの「自プロジェクト内」に限定される。
+# Runner SA が custom role を作るには iam.roles.create が要る（projectIamAdmin は binding 管理のみ）。
+# 下の runner_roles に roles/iam.roleAdmin を足した上で、その付与の伝播を待ってから作成する
+# （同一 apply 内で自分に付けた権限は即時には効かないため）。
+resource "time_sleep" "wait_for_runner_role_admin" {
+  depends_on      = [google_project_iam_member.runner_project_privilege]
+  create_duration = "90s"
+}
+
+resource "google_project_iam_custom_role" "app_deployer" {
+  depends_on  = [time_sleep.wait_for_runner_role_admin]
+  for_each    = { for k, v in google_project.apps : k => v if k != "prd" }
+  project     = each.value.project_id
+  role_id     = "appDeployer"
+  title       = "App Deployer (Factory)"
+  description = "editor に無い *.setIamPolicy と datastore.databases.create のみを補う最小デプロイ用ロール"
+  permissions = [
+    "resourcemanager.projects.getIamPolicy",
+    "resourcemanager.projects.setIamPolicy",
+    "iam.serviceAccounts.getIamPolicy",
+    "iam.serviceAccounts.setIamPolicy",
+    "secretmanager.secrets.getIamPolicy",
+    "secretmanager.secrets.setIamPolicy",
+    "cloudfunctions.functions.getIamPolicy",
+    "cloudfunctions.functions.setIamPolicy",
+    "pubsub.topics.getIamPolicy",
+    "pubsub.topics.setIamPolicy",
+    "storage.buckets.getIamPolicy",
+    "storage.buckets.setIamPolicy",
+    "datastore.databases.create",
+    "datastore.databases.get",
+    "datastore.databases.list",
+    # Firestore(default) 作成は長時間オペレーション(LRO)。provider が完了を poll するため operations 権限が要る。
+    "datastore.operations.get",
+    "datastore.operations.list",
+  ]
+}
+
+resource "google_project_iam_member" "manager_sa_deployer" {
+  for_each = google_project_iam_custom_role.app_deployer
+  project  = google_project.apps[each.key].project_id
+  role     = each.value.id
+  member   = "serviceAccount:${google_service_account.manager_sas[each.key].email}"
+}
+
+# 5-3c. Manager SA へ tfstate バケットの「自アプリ prefix 限定」アクセス（terraform init 用）。
+#   - editor はバケットアクセスを含まないため manager-sa は init が 403 になる。
+#   - 共有 tfstate バケットへフルアクセスさせると他アプリ/foundation の state が
+#     読めてしまうため、IAM 条件で terraform/state/<app_base_name>/ 配下だけに絞る。
+#   - 注意: objects.list はオブジェクト名条件(resource.name)では許可できない（バケット単位で判定）。
+#     そのため list 用に objectListPrefix リクエスト属性の節を OR で併記する（両方揃って init が通る）。
+resource "google_storage_bucket_iam_member" "manager_sa_state_access" {
+  # admin_project_id 未指定（例: sandbox 呼び出し）の時は tfstate バケット名を組み立てられないため付与しない。
+  for_each = var.admin_project_id != "" ? google_project_iam_custom_role.app_deployer : {}
+  bucket   = "${var.admin_project_id}-tfstate"
+  role     = "roles/storage.objectAdmin"
+  member   = "serviceAccount:${google_service_account.manager_sas[each.key].email}"
+  condition {
+    title       = "AppStateOnly-${each.key}-${var.app_base_name}"
+    description = "自アプリ(${var.app_base_name})の state prefix のみ許可（list は objectListPrefix / object は resource.name）"
+    expression  = "resource.name.startsWith(\"projects/_/buckets/${var.admin_project_id}-tfstate/objects/terraform/state/${var.app_base_name}/\") || api.getAttribute(\"storage.googleapis.com/objectListPrefix\", \"\").startsWith(\"terraform/state/${var.app_base_name}/\")"
+  }
+}
+
 # 5-4. WIF 連携の設定 (リポジトリ完全一致による最小権限)
 resource "google_service_account_iam_member" "wif_binding" {
   for_each           = google_project.apps
@@ -165,7 +236,13 @@ locals {
     "roles/cloudscheduler.admin",
     "roles/monitoring.admin",
     "roles/iam.serviceAccountAdmin",
-    "roles/iam.serviceAccountUser"
+    "roles/iam.serviceAccountUser",
+    # factory が app-deployer カスタムロールを各 app PJ に「作る」ため、Runner SA に
+    # ロール定義権限を付与する（projectIamAdmin は binding 管理のみでロール定義は作れない）。
+    # ※ prd 経路(Runner SA が deploy)の secret IAM / Firestore 作成の権限補完は、
+    #   secretmanager.admin(=値読取内包)/datastore.owner(=データ平面)が過剰なため、
+    #   prd cutover 時に最小カスタムロール化して別途対応する（今回は非prd=manager-sa 経路に集中）。
+    "roles/iam.roleAdmin"
   ]
 
   project_runner_roles = flatten([
