@@ -19,7 +19,10 @@ set -euo pipefail
 PROMPTFOO_VERSION="0.121.15"
 # 検閲基準に関わるパス（ここを変える PR だけが eval の対象）。
 # logs/active_rules.md は判例運用（VCS 追跡）を始めたリポジトリ向けの将来枠。
-CRITERIA_PATTERN='^(prompts/|evals/|\.clinerules$|logs/active_rules\.md$)'
+# scripts/pr_reviewer.py を含める理由: GEMINI_MODEL の既定値と判定ロジックを持つ
+# 検閲官本体の変更もドリフト検証の対象（モデル差し替え・判定変更が eval を
+# 素通りする経路を CI 側で構造的に塞ぐ）。
+CRITERIA_PATTERN='^(prompts/|evals/|\.clinerules$|logs/active_rules\.md$|scripts/pr_reviewer\.py$)'
 
 : "${GITHUB_TOKEN:?}" "${REPO_FULL_NAME:?}" "${PR_NUMBER:?}" "${PROJECT_ID:?}"
 
