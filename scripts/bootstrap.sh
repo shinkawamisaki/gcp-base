@@ -299,7 +299,7 @@ cat <<EOF > "$METADATA_FILE"
   "sandbox_folder_id": "folders/${SANDBOX_FOLDER_ID#folders/}"
 }
 EOF
-if ! gsutil cp "$METADATA_FILE" "gs://$BUCKET_NAME/bootstrap_metadata.json" >/dev/null 2>&1; then
+if ! gcloud storage cp "$METADATA_FILE" "gs://$BUCKET_NAME/bootstrap_metadata.json" >/dev/null 2>&1; then
   echo -e "${RED}[ERROR] bootstrap_metadata.json の GCS 保存に失敗しました（後続の参照が壊れます）。${NC}"
   FAILED_STEPS+=("metadata-upload")
 fi
@@ -396,14 +396,14 @@ EOF
 # バケットはバージョニング有効化済みのため、証跡として安全に保管されます
 # 監査証跡（IPO 用）の保存は成功確認が必須。失敗を握り潰して
 # 「保存しました」と表示するのは虚偽の証跡報告になる。
-if gsutil cp "$AUDIT_LOG_FILE" "gs://$BUCKET_NAME/audit_logs/$AUDIT_LOG_FILE" >/dev/null 2>&1; then
+if gcloud storage cp "$AUDIT_LOG_FILE" "gs://$BUCKET_NAME/audit_logs/$AUDIT_LOG_FILE" >/dev/null 2>&1; then
   rm -f "$AUDIT_LOG_FILE"
   echo -e "${GREEN}[OK] 監査ログを gs://$BUCKET_NAME/audit_logs/ に保存しました。${NC}"
 else
   # trap が bootstrap_audit_log_*.json を削除するため、.unsent に退避して保全する
   mv "$AUDIT_LOG_FILE" "${AUDIT_LOG_FILE}.unsent"
   echo -e "${RED}[ERROR] 監査ログの GCS 保存に失敗しました。ローカルに ${AUDIT_LOG_FILE}.unsent として退避しました。${NC}"
-  echo -e "${RED}  手動でアップロードしてください: gsutil cp ${AUDIT_LOG_FILE}.unsent gs://$BUCKET_NAME/audit_logs/$AUDIT_LOG_FILE${NC}"
+  echo -e "${RED}  手動でアップロードしてください: gcloud storage cp ${AUDIT_LOG_FILE}.unsent gs://$BUCKET_NAME/audit_logs/$AUDIT_LOG_FILE${NC}"
   FAILED_STEPS+=("audit-log-upload")
 fi
 
