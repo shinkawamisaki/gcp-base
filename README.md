@@ -251,7 +251,6 @@ terraform import google_org_policy_policy.legacy_allowed_domains organizations/Y
 **shinkawa.misaki**
 
 - **GitHub**: [shinkawamisaki](https://github.com/shinkawamisaki)
-- **YOUTRUST**: [shinkawa](https://youtrust.jp/users/shinkawa)
 - **Email**: [shinkawa.misaki@gmail.com](mailto:shinkawa.misaki@gmail.com)
 
 ## ライセンス
