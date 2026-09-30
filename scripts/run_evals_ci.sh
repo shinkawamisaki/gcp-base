@@ -22,7 +22,7 @@ PROMPTFOO_VERSION="0.121.15"
 # scripts/pr_reviewer.py を含める理由: GEMINI_MODEL の既定値と判定ロジックを持つ
 # 検閲官本体の変更もドリフト検証の対象（モデル差し替え・判定変更が eval を
 # 素通りする経路を CI 側で構造的に塞ぐ）。
-CRITERIA_PATTERN='^(prompts/|evals/|\.clinerules$|logs/active_rules\.md$|scripts/pr_reviewer\.py$)'
+CRITERIA_PATTERN='^(prompts/|evals/|AGENTS\.md$|logs/active_rules\.md$|scripts/pr_reviewer\.py$)'
 
 : "${GITHUB_TOKEN:?}" "${REPO_FULL_NAME:?}" "${PR_NUMBER:?}" "${PROJECT_ID:?}"
 
@@ -63,7 +63,7 @@ if [ "${need_eval}" -eq 0 ] && grep -qE "${CRITERIA_PATTERN}" <<<"${files}"; the
 fi
 
 if [ "${need_eval}" -eq 0 ]; then
-  echo "[INFO] 検閲基準（prompts/ evals/ .clinerules active_rules.md）への変更はありません。eval をスキップします。"
+  echo "[INFO] 検閲基準（prompts/ evals/ AGENTS.md active_rules.md）への変更はありません。eval をスキップします。"
   exit 0
 fi
 

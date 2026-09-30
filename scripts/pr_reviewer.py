@@ -43,6 +43,8 @@ DATADOG_ENABLED = os.environ.get("DATADOG_ENABLED", "false").lower() == "true"
 # 直接解釈できる {{rules}} / {{active_rules}} / {{diff}} 形式とし、本番側は
 # 単純な文字列置換で埋める（.format() は将来プロンプトに {} が入ると壊れるため不使用）。
 PROMPT_TEMPLATE_PATH = "prompts/reviewer_prompt.txt"
+# 憲法（設計思想・実装ルール）のパス。ツール非依存の慣習名 AGENTS.md を正典とする。
+RULES_PATH = "AGENTS.md"
 
 if not all([PROJECT_ID, GITHUB_TOKEN, REPO_FULL_NAME, PR_NUMBER, COMMIT_SHA]):
     print("[ERROR] 必要な環境変数が設定されていません。")
@@ -72,7 +74,7 @@ def get_base_file_content(path, base_sha, local_path=None):
     """審査基準ファイル（憲法・判例）を PR の base コミットから取得する。
 
     【なぜ base から読むか（自己参照の遮断）】
-    検閲基準（.clinerules / active_rules.md）を PR 適用後（checkout 後）の
+    検閲基準（AGENTS.md / active_rules.md）を PR 適用後（checkout 後）の
     内容で読むと、「ルールを骨抜きにする PR」を“骨抜き後のルール”で審査する
     ことになり、ルール削除を同じ diff で検知できなくなる（自己参照の穴）。
     base コミットから読めば「この変更を、変更前のルールで判定」が成立する。
@@ -337,12 +339,12 @@ def main():
 
     # 安全側デフォルト: base から取得できない（absent/empty）基準は「無い」として
     # 審査する。PR で新規追加した基準ファイルは次の PR から有効（自己参照の遮断）。
-    rules_content, rules_src = get_base_file_content(".clinerules", base_sha)
+    rules_content, rules_src = get_base_file_content(RULES_PATH, base_sha)
     if rules_src in ("empty", "absent"):
         rules_content = ""
-        print("[WARN] .clinerules が base から取得できません。一般ベストプラクティスで審査します。")
+        print(f"[WARN] 憲法（{RULES_PATH}）が base から取得できません。一般ベストプラクティスで審査します。")
     else:
-        print(f"[INFO] .clinerules を読み込みました（source={rules_src}）。")
+        print(f"[INFO] 憲法（{RULES_PATH}）を読み込みました（source={rules_src}）。")
 
     # 判例集（重複なし・最新判断のみ。証跡は judgments.md を参照）
     active_rules_content, ar_src = get_base_file_content("logs/active_rules.md", base_sha)
@@ -352,7 +354,7 @@ def main():
     else:
         print(f"[INFO] 判例集 (active_rules.md) を読み込みました（source={ar_src}）。")
 
-    # 検閲プロンプト本体も審査基準の一部であるため、.clinerules と同様に
+    # 検閲プロンプト本体も審査基準の一部であるため、AGENTS.md と同様に
     # base コミットから読む（自己参照の遮断）。「プロンプトを骨抜きにする PR」を
     # 骨抜き前のプロンプトで検閲する。プロンプト無しでは検閲が成立しないため、
     # 取得不能（absent 含む: PR が持ち込んだ head 版プロンプトは採用しない）時は

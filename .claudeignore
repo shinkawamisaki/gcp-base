@@ -14,7 +14,7 @@ secrets/
 .terraform.lock.hcl
 
 # ログ・バックアップ
-# logs/ は active_rules.md / judgments.md を Cline が読む必要があるため除外しない
+# logs/ は active_rules.md / judgments.md を AI エージェントが読む必要があるため除外しない
 *.log
 *.bak
 *.dump

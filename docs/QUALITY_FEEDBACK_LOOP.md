@@ -27,7 +27,7 @@ Layer 2における各検証プロセスは、その判定基準となる「根�
 
 ```mermaid
 flowchart LR
-    CR[".clinerules<br>役割分担を明記"]
+    CR["AGENTS.md<br>役割分担を明記"]
 
     CR -->|客観的・静的<br>外部標準に委譲| EXT
     CR -->|設計思想が要るもの<br>AIに残す| AI
@@ -40,7 +40,7 @@ flowchart LR
     end
 
     subgraph AI["プロジェクト固有"]
-        D["**D: Gemini**<br>.clinerules（憲法）<br>+ active_rules.md（判例）<br>prd-プレフィックス・Shared VPC・SA境界"]
+        D["**D: Gemini**<br>AGENTS.md（憲法）<br>+ active_rules.md（判例）<br>prd-プレフィックス・Shared VPC・SA境界"]
     end
 ```
 
@@ -49,7 +49,7 @@ flowchart LR
 | A（gitleaks） | gitleaks公式デフォルトルールセット | OSSコミュニティ |
 | B（Checkov） | CIS Google Cloud Platform Foundation Benchmark | CIS（国際標準団体） |
 | C（terraform plan） | Terraform エンジンの差分計算 | HashiCorp |
-| D（Gemini） | `.clinerules`（憲法）+ `logs/active_rules.md`（判例） | プロジェクト設計 |
+| D（Gemini） | `AGENTS.md`（憲法）+ `logs/active_rules.md`（判例） | プロジェクト設計 |
 | E（CodeQL） | GitHub公式セキュリティクエリ | GitHub Security Lab |
 
 ---
@@ -60,13 +60,13 @@ flowchart LR
 
 開発を担当するAIエージェント（Claude Code）はセッション間でコンテキストを保持しないため、必要な記憶を用途別に永続化先を分けてファイルシステム／個人メモリに残す。
 
-> **writer と reviewer の関係:** 設計思想の正典は `.clinerules`（全モデル共通の憲法）で、writer・reviewer の双方がこれに従う。writer（Claude Code）は CLAUDE.md 経由で `.clinerules` を取り込み「正しいコードを書くため」に参照する。reviewer（Layer 2 D / Gemini）は同じ憲法で独立に照合する強制ゲート。二段レビューの価値は writer の無知ではなく「別モデル・独立したゲート」にあり、writer が「レビュー通過」を目的化しないことが要点（Goodhart の罠の回避）。
+> **writer と reviewer の関係:** 設計思想の正典は `AGENTS.md`（全モデル共通の憲法）で、writer・reviewer の双方がこれに従う。writer（Claude Code）は CLAUDE.md 経由で `AGENTS.md` を取り込み「正しいコードを書くため」に参照する。reviewer（Layer 2 D / Gemini）は同じ憲法で独立に照合する強制ゲート。二段レビューの価値は writer の無知ではなく「別モデル・独立したゲート」にあり、writer が「レビュー通過」を目的化しないことが要点（Goodhart の罠の回避）。
 
 記憶の永続化先は次の3経路に分業する（Cline 時代の単一ノート `logs/ai-notes.md` は廃止）：
 
 | 種別 | 永続化先 | 読む主体 |
 |---|---|---|
-| 設計思想・ルールの更新 | `CLAUDE.md` / `.clinerules` | writer（次回セッション） |
+| 設計思想・ルールの更新 | `CLAUDE.md` / `AGENTS.md` | writer（次回セッション） |
 | 人間判断の判例 | `logs/judgments.md` → `logs/active_rules.md`（Layer 2 D に合流）＋ 対応ケースを `evals/cases/` に追加（回帰テストに固定化） | reviewer（Gemini）／ eval |
 | 個人の作業習慣 | auto-memory（Claude Code 個人メモリ） | writer（自動） |
 
@@ -74,7 +74,7 @@ flowchart LR
 flowchart TD
     EVENT["設計変更・差し戻し・背景の共有"]
     R{種別で振り分け}
-    RULE["CLAUDE.md / .clinerules<br>（設計・ルール）"]
+    RULE["CLAUDE.md / AGENTS.md<br>（設計・ルール）"]
     JUDGE["logs/judgments.md<br>（人間判断 → Layer 2 D へ合流）"]
     MEM["auto-memory<br>（個人の作業習慣）"]
     NEXT["次のセッションで<br>該当経路から読み込む"]
@@ -99,7 +99,7 @@ Pull Request作成時に自動実行されるAIレビューのフィードバッ
 
 **ゲートの堅牢性（強制ゲートとして成立させるための設計）:**
 - **Fail-Closed 判定**: 合格は `RESULT: PASS` の**明示一致**のみ。PASS/FAIL いずれにも一致しない出力（プロンプトインジェクション成功・形式逸脱）は「検閲不能」として扱う。従来の「FAIL を含まなければ合格」という否定形判定は合格側に倒れるため廃止。PR の diff は `<diff>` デリミタで囲み、diff 内の指示を実行しないようプロンプトで明示する。検閲不能をブロックにするかは `STRICT_AI_VERIFY`（本番運用では `true` 推奨）で制御する。
-- **審査基準は base コミットから読む（自己参照の遮断）**: `.clinerules` / `active_rules.md` を PR 適用後ではなく **PR の base** から読む。これにより「ルール自体を骨抜きにする PR」を骨抜き前のルールで審査でき、判例の改変も削除前の基準で検閲される（diff は PR から取得するので変更内容は審査される）。判例の更新 PR が、その未承認の判例を自らの正当化に使うこともできない。
+- **審査基準は base コミットから読む（自己参照の遮断）**: `AGENTS.md` / `active_rules.md` を PR 適用後ではなく **PR の base** から読む。これにより「ルール自体を骨抜きにする PR」を骨抜き前のルールで審査でき、判例の改変も削除前の基準で検閲される（diff は PR から取得するので変更内容は審査される）。判例の更新 PR が、その未承認の判例を自らの正当化に使うこともできない。
 - **Draft PR の扱い**: Draft は FAIL でも非ブロックだが Status Check は Success ではなく **Pending**。Success にすると draft→ready 転換で再検閲が走らず FAIL のまま通過できるため、Pending で「Ready 時点から厳格にブロック」を技術的に強制する。
 - **可用性の多層化**: Vertex 障害時は ①リトライ → ②フォールバックモデル（`gemini-2.5-pro`）→ ③フォールバックリージョン（`global`）の順に同一 ADC で自動切替。**別ベンダーの AI は使わない**（writer / reviewer の独立性維持・新規資格情報を増やさない）。
 
@@ -204,7 +204,7 @@ flowchart TD
 AIレビュアー（D）の判定精度は、ゴールデンセット（合格/不合格にすべき diff）への回帰テスト（`evals/` / promptfoo）でマージ前に機械検証する。
 
 - 本番（`pr_reviewer.py`）と同一の `prompts/reviewer_prompt.txt` をテストするため、eval と本番のプロンプト乖離は構造的に発生しない
-- 検閲基準（`.clinerules` / 判例集 / プロンプト / `evals/`）を変更する PR では、Cloud Build（`scripts/run_evals_ci.sh`）が eval を自動実行し、全ケース合格しないとマージできない（手動実行の「打ち忘れ」は構造的に発生しない）。無関係な PR では実行しない（障害半径の限定）
+- 検閲基準（`AGENTS.md` / 判例集 / プロンプト / `evals/`）を変更する PR では、Cloud Build（`scripts/run_evals_ci.sh`）が eval を自動実行し、全ケース合格しないとマージできない（手動実行の「打ち忘れ」は構造的に発生しない）。無関係な PR では実行しない（障害半径の限定）
 - 新しい判例の追加時に対応ケースを `evals/cases/` へ追加し、同じ判定ミスの再発を機械検知する（運用詳細は `evals/README.md`）
 
 Datadog 送信（オプション機能）は実行結果の事後可視化であり、精度担保の主手段は上記の事前回帰テストに置く。Datadog 利用時は連続FAIL等の異常検知アラートが未設定という課題が残る。
@@ -243,7 +243,7 @@ GitHub Code Scanning
 * **Layer 2（PR）:** gitleaks + Checkov + AI Review + eval（D の回帰テスト）
   * **目的:** 本番環境への危険なコードの混入防止
   * **制約:** 強制ゲート（GitHub Actions Required Status Checksによるスキップ不可）
-  * **eval（条件付き強制ゲート）:** 検閲基準（`.clinerules` / `logs/active_rules.md` / `prompts/` / `evals/`）を変更する PR でのみ、D と同一ビルド内（`scripts/run_evals_ci.sh`）でゴールデンセット回帰テストを実行し、全ケース合格しないとマージ不可。無関係な PR では実行しない（§4.3 参照）
+  * **eval（条件付き強制ゲート）:** 検閲基準（`AGENTS.md` / `logs/active_rules.md` / `prompts/` / `evals/`）を変更する PR でのみ、D と同一ビルド内（`scripts/run_evals_ci.sh`）でゴールデンセット回帰テストを実行し、全ケース合格しないとマージ不可。無関係な PR では実行しない（§4.3 参照）
 
 ### Layer 1 の確実な運用（仕組み化）
 Layer 1 は開発者のローカル環境に依存するため、「インストール忘れ」によるすり抜けリスクが存在する。これを防ぐため、本プロジェクトでは**初期セットアップスクリプト（`scripts/bootstrap.sh`等）に `pre-commit` のインストールを組み込み、開発参加時に自動的かつ強制的に仕組みが適用される**アーキテクチャを採用している。

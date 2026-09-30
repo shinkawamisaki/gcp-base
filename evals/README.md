@@ -33,7 +33,7 @@ npx promptfoo@latest view               # 結果をブラウザで確認（任�
 
 ## いつ回るか（検証ループ）
 
-**CI が自動で強制する**: 検閲基準（`.clinerules` / `prompts/` / `evals/` /
+**CI が自動で強制する**: 検閲基準（`AGENTS.md` / `prompts/` / `evals/` /
 `logs/active_rules.md`）を変更する PR では、Cloud Build（`scripts/run_evals_ci.sh`）が
 eval を自動実行し、**全ケース合格しないとマージできない**。手動実行を忘れても
 検証が抜けることはない（AI検閲官の Cloud Build トリガーを配線済みであることが前提）。

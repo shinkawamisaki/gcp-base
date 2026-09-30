@@ -15,7 +15,7 @@
 5.  **開発者向け自動セットアップ**
     - プロジェクト完成時、開発者はサンプルキットをDLするだけでWIFによるapply/deployが可能に。
 6.  **AI 駆動型クロス検証 (Cloud Build CI)**
-    - Gemini 2.5-flash が Pull Request 作成時に設計思想 (`.clinerules`) および過去の人間判断 (`logs/active_rules.md`) との整合性を自動レビュー。承認された変更の逆引き仕様書（変更証跡）を自動生成してGCSバケットに直送・保存し、検証結果を GitHub PR コメントとしてフィードバック（Suggested Changes 含む）します。
+    - Gemini 2.5-flash が Pull Request 作成時に設計思想 (`AGENTS.md`) および過去の人間判断 (`logs/active_rules.md`) との整合性を自動レビュー。承認された変更の逆引き仕様書（変更証跡）を自動生成してGCSバケットに直送・保存し、検証結果を GitHub PR コメントとしてフィードバック（Suggested Changes 含む）します。
 7.  **CIS GCP ベースライン Checkov (governance / modules)**
     - Google Cloud CIS Benchmark に基づく Checkov が `governance/` と `modules/` を対象に MEDIUM 以上の脆弱性をハードフェイルでブロック。客観的なIAM・ネットワーク・削除保護チェックはツールに委譲し、AIは設計判断に集中します。
 8.  **Datadog メトリクス監視（ON/OFF 切り替え可）**
@@ -37,7 +37,7 @@ graph TD
     subgraph "2. 熟考層: Cloud Build 非同期検証 (Deep)"
         C --> D[Cloud Build 起動 / コンテナ実行]
         D --> E{AI検閲官: Gemini 2.5 Flash}
-        E -->|.clinerules 違反| F[PRに修正案を自動コメント ❌]
+        E -->|AGENTS.md 違反| F[PRに修正案を自動コメント ❌]
         E -->|ルール準拠| G[PRマージ許可 ✅]
     end
 
@@ -74,7 +74,7 @@ graph TD
 
 ```text
 gcp-base/
-├── .clinerules             # AIへのプロジェクト憲法（設計原則・禁止事項）
+├── AGENTS.md               # AIへのプロジェクト憲法（設計原則・禁止事項、全モデル共通）
 ├── .checkov.yaml           # Checkov CIS GCP 設定（意図的除外の管理）
 ├── .github/                # GitHub Actions ワークフロー定義
 ├── apps/                   # 各アプリ用スターターキット（テンプレート）
@@ -205,7 +205,7 @@ WIF（GitHub連携）、予算通知、監視ボットなどを構築します�
 
 - **IPO対応のガバナンス**: `owner` や `editor` などの強い基本ロールを排除し、原則としてIAM条件(Conditions)を用いた時間的・スコープ的に限定された権限のみを使用。
 - **完全鍵レスの不可逆化**: WIF による鍵レス運用に加え、組織ポリシー `iam.disableServiceAccountKeyCreation` / `iam.disableServiceAccountKeyUpload` で SA キーの作成・持ち込みを組織レベルで禁止し、長命クレデンシャルを構造的に排除。
-- **自律的レビュー**: コード変更はマージ前に AI (Gemini) が `.clinerules`・判例集に基づいて自律レビュー。判定は `RESULT: PASS` の明示一致を合格条件とし、審査基準は PR の base コミットから読み込んで「ルール自体を骨抜きにする PR」を骨抜き前のルールで検閲します（自己参照の遮断）。Vertex 障害時はリトライ＋モデル/リージョンのフォールバックで可用性を確保（別ベンダーは使用しません）。
+- **自律的レビュー**: コード変更はマージ前に AI (Gemini) が `AGENTS.md`・判例集に基づいて自律レビュー。判定は `RESULT: PASS` の明示一致を合格条件とし、審査基準は PR の base コミットから読み込んで「ルール自体を骨抜きにする PR」を骨抜き前のルールで検閲します（自己参照の遮断）。Vertex 障害時はリトライ＋モデル/リージョンのフォールバックで可用性を確保（別ベンダーは使用しません）。
     - **検閲不能時の挙動 (`STRICT_AI_VERIFY`)**: AIが検閲を実行**できない**場合（SDK欠落・Vertex APIエラー・想定外応答等）の扱いは環境変数 `STRICT_AI_VERIFY` で切り替えます。**OSS 既定は `false`（fail-open: 警告を出して続行）**で、導入のハードルを下げるための意図的な設定です。**本番運用では `true`（fail-closed: 検閲不能ならマージをブロック）を推奨**します。なお、AIが違反を**検知した**場合（`RESULT: FAIL`）は `STRICT_AI_VERIFY` の値に関わらず常にブロックされます（Draft PR を除く）。
 - **WIF の厳格化**: 各リポジトリのブランチに対して最小権限の Service Account を紐づけ、ワイルドカード（*）による認証を禁止。
 - **組織監査ログの一元管理**: 組織レベルのデータアクセス監査ログ（`ADMIN_READ`/`DATA_READ`/`DATA_WRITE`）を、権限を持つ Runner SA 管轄の foundation で一本化し、二重管理・州の競合を排除。

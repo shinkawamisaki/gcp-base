@@ -2,11 +2,11 @@
 # AI検閲官（scripts/pr_reviewer.py）の回帰テスト設定
 # =============================================================================
 # 目的: 「AIレビュアーの精度をどう担保するか」に対する機械検証の答え。
-#   - プロンプト・.clinerules・判例集を変更する PR の前にローカルで回す
+#   - プロンプト・AGENTS.md・判例集を変更する PR の前にローカルで回す
 #   - モデル更新（GEMINI_MODEL 変更）時のドリフト検証にも使う
 # 設計:
 #   - プロンプトは本番（pr_reviewer.py）と同一ファイルを参照する（形骸化防止）
-#   - rules は repo の実 .clinerules を参照する
+#   - rules は repo の実 AGENTS.md を参照する
 #   - active_rules は既定でサンプル（fixtures/active_rules.sample.md）を参照する。
 #     自リポジトリで判例運用（logs/active_rules.md の VCS 追跡）を始めたら
 #     file://../logs/active_rules.md に差し替えること（evals/README.md 参照）
@@ -23,7 +23,7 @@ prompts:
 
 providers:
   # 本番の既定（GEMINI_MODEL=gemini-2.5-flash / pr_reviewer.py と同一）。
-  # プロジェクト/リージョンはハードコードせず環境変数で渡す（.clinerules §3）:
+  # プロジェクト/リージョンはハードコードせず環境変数で渡す（AGENTS.md §3）:
   #   VERTEX_PROJECT_ID / VERTEX_REGION（README 参照）
   - id: vertex:gemini-2.5-flash
     config:
@@ -31,7 +31,7 @@ providers:
 
 defaultTest:
   vars:
-    rules: file://../.clinerules
+    rules: file://../AGENTS.md
     active_rules: file://fixtures/active_rules.sample.md
 
 tests:
