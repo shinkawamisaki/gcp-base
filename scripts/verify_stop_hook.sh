@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop hook: .clinerules 第6章「自律検証フロー」の terraform validate を機械的に強制する。
+# Stop hook: AGENTS.md 第6章「自律検証フロー」の terraform validate を機械的に強制する。
 # .tf に変更があったターンだけ、変更を含む init 済みディレクトリを検証する。
 # 会話のみのターン・未 init ディレクトリ・terraform 未インストール時は何もしない
 # （誤ブロックによる開発体験の毀損を防ぐため）。
@@ -28,7 +28,7 @@ done <<< "$dirs"
 
 if [ "$failed" -eq 1 ]; then
   {
-    echo "❌ terraform validate 失敗（.clinerules 第6章）。修正してから完了すること:"
+    echo "❌ terraform validate 失敗（AGENTS.md 第6章）。修正してから完了すること:"
     echo "$report"
   } >&2
   exit 2

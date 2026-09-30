@@ -18,7 +18,7 @@ data "google_iam_workload_identity_pool_provider" "gh_provider" {
 }
 
 # 【許可リポジトリの単一真実源 = 台帳(inventory.json)】
-# ハードコード排除(.clinerules 3「全リソース定義は inventory.json に集約」)のため、
+# ハードコード排除(AGENTS.md 3「全リソース定義は inventory.json に集約」)のため、
 # 許可リストをワークフロー直書きではなく factory の台帳から導出する。
 # factory が払い出す各アプリのリポを、prd デプロイの Handover 先である
 # 中央 Runner SA へ自動で WIF 許可する（台帳にアプリを足せば自動認可＝

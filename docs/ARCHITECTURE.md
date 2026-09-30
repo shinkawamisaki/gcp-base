@@ -95,13 +95,13 @@ Project Factory を通じて作成された本番（prd）および検証（stg�
 
 ### 6.1 PR時のAI自動検閲 (Cloud Build PR Reviewer)
 設計思想（プロジェクト憲法）から逸脱した変更を未然に防ぐため、PR（Pull Request）作成時に Cloud Build 上で自律的に動作する AI検閲官（`scripts/pr_reviewer.py`）を提供しています。AI 検閲官は **Vertex AI を ADC で呼び出す鍵レス構成**で、API キーを持ちません。
-- **設計思想との整合性チェック**: Gemini が `.clinerules` と PR の差分を比較し、職務分掌や最小権限の原則に反する変更を検知します。不合格の場合は PR に「AI検閲官からのアドバイス」として自動コメントします。
+- **設計思想との整合性チェック**: Gemini が `AGENTS.md` と PR の差分を比較し、職務分掌や最小権限の原則に反する変更を検知します。不合格の場合は PR に「AI検閲官からのアドバイス」として自動コメントします。
 - **フェイルクローズ判定（`STRICT_AI_VERIFY=true`）**: 判定は「`RESULT: PASS` の明示一致」を合格条件とし、PASS/FAIL のいずれにも一致しない出力は「検閲不能」として **error でマージをブロック**します（従来の「`RESULT: FAIL` を含まなければ合格」という否定形判定は、プロンプトインジェクションや形式逸脱時に合格側へ倒れるため廃止）。PR の diff は `<diff>` デリミタで囲み、diff 内に埋め込まれた指示を実行しないようプロンプトで明示します（プロンプトインジェクション対策）。
-- **審査基準は base コミットから読む（自己参照の遮断）**: 検閲基準（`.clinerules` / `logs/active_rules.md`）を PR 適用後ではなく **PR の base コミット**から取得します。これにより「ルール自体を骨抜きにする PR」を“骨抜き前のルール”で審査でき、ルール削除を同じ diff で見逃す自己参照の穴を塞ぎます（diff 自体は従来どおり PR から取得）。
+- **審査基準は base コミットから読む（自己参照の遮断）**: 検閲基準（`AGENTS.md` / `logs/active_rules.md`）を PR 適用後ではなく **PR の base コミット**から取得します。これにより「ルール自体を骨抜きにする PR」を“骨抜き前のルール”で審査でき、ルール削除を同じ diff で見逃す自己参照の穴を塞ぎます（diff 自体は従来どおり PR から取得）。
 - **Draft PR の扱い（判例 DX-001）**: Draft PR は FAIL でもブロックせず、Status Check を **Pending**（非ブロック）とします。Success にすると draft→ready 転換時に再検閲が走らず FAIL のまま通過できてしまうため、Pending とすることで「Ready for Review 時点から厳格にブロックする」を技術的に強制します。
 - **可用性の多層化（判例 OPS-008）**: fail-closed ゲートが Vertex 障害時にマージを止め続けないよう、①同一構成リトライ（バックオフ付き）→ ②フォールバックモデル（`gemini-2.5-pro`）→ ③フォールバックリージョン（`global`）の順に**同一 ADC の範囲で**自動切替します。**別ベンダーの AI は使いません**（writer=Claude / reviewer=Gemini の独立性維持・新規資格情報を増やさないため）。全構成が失敗した場合のみ STRICT 契約に到達し、長時間障害は break-glass 手順（管理者バイパス＋証跡＋復旧後の再検閲）で対応します。
 - **逆引き仕様書の自動生成とGCS保存**: 承認（PASS）された変更については、AI が「誰が、何のために、どのような変更をしたか」を説明する逆引き仕様書を自動生成し、Gitリポジトリの肥大化を防ぐため直接 GCS バケット (`gs://[PROJECT_ID]-changelog-store`) にアップロードし、IPO 審査の確実な証跡とします。
-- **判例集の参照**: AI検閲は `.clinerules`（憲法）に加え `logs/active_rules.md`（人間が下した判断の判例集）を読み込み、過去の例外や判断を憲法より優先して適用します。
+- **判例集の参照**: AI検閲は `AGENTS.md`（憲法）に加え `logs/active_rules.md`（人間が下した判断の判例集）を読み込み、過去の例外や判断を憲法より優先して適用します。
 - **Datadog 連携**: AI による検証の成否を Datadog へ送信します。`result` / `category`（IAM・SECRET・NETWORK 等）/ `author` / `is_draft` 等のリッチなタグが付与されます（`DATADOG_ENABLED=false` で無効化可能）。
 - **Checkov (CIS GCP)**: `governance/` および `modules/` に対して CIS Google Cloud Platform Foundation Benchmark を適用。IAM・ネットワーク・削除保護等の客観的チェックはツールに委譲し、AIは設計判断に集中します。例外（Handover 戦略の editor 等）はグローバル除外ではなく該当リソースへのインライン skip に限定し、新規の過剰権限付与が再び検知される状態を維持します。
 
