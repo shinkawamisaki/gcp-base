@@ -1,15 +1,19 @@
 {
+  "permissions": {
+    "deny": [
+      "Bash(terraform *destroy*)",
+      "Bash(rm -rf *.terraform*)",
+      "Bash(gcloud * delete)",
+      "Bash(gcloud * delete *)",
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push *:main*)",
+      "Bash(git push * master)",
+      "Bash(git push * master *)",
+      "Bash(git push *:master*)"
+    ]
+  },
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash.*(terraform destroy|rm -rf .terraform|gcloud.*delete.*--quiet)",
-        "hooks": [{"type": "command", "command": "echo '❌ 破壊的コマンド（destroy/delete）は禁止されています。手動で実行するか、管理者の承認を得てください。' && exit 1"}]
-      },
-      {
-        "matcher": "Bash.*git push.*(main|master)",
-        "hooks": [{"type": "command", "command": "echo '⚠️ mainブランチへの直接pushは確認後に手動で実行してください' && exit 1"}]
-      }
-    ],
     "Stop": [
       {
         "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/verify_stop_hook.sh\""}]
