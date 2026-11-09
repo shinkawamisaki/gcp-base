@@ -2,15 +2,24 @@
   "permissions": {
     "deny": [
       "Bash(terraform *destroy*)",
-      "Bash(rm -rf *.terraform*)",
+      "Bash(env *terraform *destroy*)",
+      "Bash(rm -*r* *.terraform*)",
       "Bash(gcloud * delete)",
       "Bash(gcloud * delete *)",
+      "Bash(env *gcloud * delete*)",
+      "Bash(git push)",
+      "Bash(git push -f)",
+      "Bash(git push --force)",
+      "Bash(git push --force-with-lease)",
+      "Bash(git push * HEAD)",
       "Bash(git push * main)",
       "Bash(git push * main *)",
       "Bash(git push *:main*)",
+      "Bash(git push *refs/heads/main*)",
       "Bash(git push * master)",
       "Bash(git push * master *)",
-      "Bash(git push *:master*)"
+      "Bash(git push *:master*)",
+      "Bash(git push *refs/heads/master*)"
     ]
   },
   "hooks": {
