@@ -51,7 +51,11 @@ set_secret() {
     if [ "$_desc_rc" -ne 0 ]; then
         if printf '%s' "$_desc_err" | grep -qiE "reauth|credential|invalid_grant|permission|denied|forbidden|unauthor"; then
             echo -e "${RED}[Auth] '$NAME' を確認できません（認証/権限エラー）。${NC}"
-            echo -e "${YELLOW}→ 'gcloud auth login' で再認証してから再実行してください。中断します。${NC}"
+            # 再認証だけでは直らない「権限不足」もここに来るので、両方の直し方を示す
+            # （アカウント名・エラー本文は出さない。確認用のコマンドだけを案内する）。
+            echo -e "${YELLOW}→ 認証切れなら 'gcloud auth login' で再認証してください。${NC}"
+            echo -e "${YELLOW}→ 権限不足なら、今のアカウント（'gcloud auth list' の * 印）がプロジェクト '$PJ' の Secret Manager を操作できるか（例: roles/secretmanager.admin）を確認してください。${NC}"
+            echo -e "${YELLOW}   どちらかを直してから再実行してください。中断します。${NC}"
             exit 1
         elif printf '%s' "$_desc_err" | grep -qiE "NOT_FOUND|not found|does not exist|was not found"; then
             echo -e "${RED}Error: Secret '$NAME' does not exist in Admin project. (skip)${NC}"
