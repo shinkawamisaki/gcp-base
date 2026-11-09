@@ -101,6 +101,14 @@ def main():
     admin_id = os.environ.get('GCP_PROJECT_ID')
     admin_num = os.environ.get('GCP_PROJECT_NUMBER')
 
+    # 強制再同期フラグ: 通常は inventory に差分があるアプリ/サンドボックスのみ同期するが、
+    # FORCE_VARIABLE_SYNC=true のときは差分の有無に関わらず現 inventory の全エントリを
+    # 再同期する。クレデンシャル修復後など「差分は無いが変数を入れ直したい」ケース用の
+    # 手動トリガー（platform-admin.yml の workflow_dispatch 入力から渡す）。
+    force_sync = os.environ.get('FORCE_VARIABLE_SYNC', '').lower() == 'true'
+    if force_sync:
+        print("⚙️ FORCE_VARIABLE_SYNC=true: 差分に関わらず現 inventory の全エントリを再同期します。")
+
     # 1. まず既存の PAT を試行
     gh_token = os.environ.get('GITHUB_TOKEN')
     
@@ -129,7 +137,7 @@ def main():
     # Apps の処理
     for app_name, config in new_inv.get('apps', {}).items():
         old_config = old_inv.get('apps', {}).get(app_name)
-        if not old_config or config != old_config:
+        if force_sync or not old_config or config != old_config:
             repo = config.get('github_repo')
             if not repo: continue
             # fail-loud: トークン未取得で同期対象があるのに exit 0 すると、
@@ -180,7 +188,7 @@ def main():
     # Sandboxes の処理
     for sb_key, config in new_inv.get('sandboxes', {}).items():
         old_config = old_inv.get('sandboxes', {}).get(sb_key)
-        if not old_config or config != old_config:
+        if force_sync or not old_config or config != old_config:
             repo = config.get('github_repo')
             if not repo: continue
             # fail-loud: Apps 側と同じ理由でスキップを failed に記録する

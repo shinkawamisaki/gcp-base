@@ -10,6 +10,23 @@ on:
       - 'scripts/**'
       - '.github/workflows/platform-admin.yml'
   workflow_dispatch:
+    inputs:
+      force_variable_sync:
+        description: 'inventory に差分が無くても現 inventory の全アプリ/サンドボックスの GitHub Variables を再同期する（クレデンシャル修復後などの手動再同期用）'
+        type: boolean
+        default: false
+
+# 同一 state への terraform apply の同時実行を防ぐ。複数 PR を連続マージすると
+# マージごとにこの workflow が起動し、apply 同士が GCS の state ロックを取り合って
+# `Error 412: acquiring the state lock` で失敗する。group を main 単位にして直列化し、
+# 後続 run は実行中の apply 完了を待つ。
+#   cancel-in-progress: false … 実行中の apply は絶対に中断しない（途中キャンセルは
+#   state 破損・リソース半端適用のリスク）。待機中(pending)の中間 run はより新しい run に
+#   置き換えられるが、terraform は宣言的で最新コミットの apply が過去差分も全て含むため
+#   最終状態は最新に収束し、変更は取りこぼされない。
+concurrency:
+  group: admin-deploy-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -186,6 +203,9 @@ jobs:
           PROJECTS_JSON: ${{ env.PROJECTS_JSON }}
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
+          # workflow_dispatch の force_variable_sync 入力を notify スクリプトへ渡す。
+          # push トリガー時は inputs が無いため空文字（＝通常の差分ベース同期）。
+          FORCE_VARIABLE_SYNC: ${{ github.event.inputs.force_variable_sync }}
         run: |
           set -e
           # ---------------------------------------------------------------
