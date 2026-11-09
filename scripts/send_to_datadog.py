@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import urllib.request
+import urllib.parse
 import json
 
 DATADOG_ENABLED = os.environ.get("DATADOG_ENABLED", "false").lower() == "true"
@@ -25,6 +26,11 @@ def send_metric(result):
         return
 
     url = os.environ.get("DATADOG_API_URL", "https://api.datadoghq.com/api/v2/series")
+    # urlopen に file:// 等の想定外スキームを渡させない（CWE-22）。
+    # DATADOG_API_URL は外部入力（環境変数）であり、https 以外は弾く。
+    if urllib.parse.urlparse(url).scheme != "https":
+        print("[WARN] DATADOG_API_URL が https ではないためスキップします。")
+        return
     metric_name = f"gcp.ai_verifier.{'pass' if result == 'pass' else 'fail'}_count"
 
     payload = {
@@ -41,6 +47,7 @@ def send_metric(result):
         method="POST",
     )
     try:
+        # 直前で scheme を https に限定済みのため、file:// や独自スキームは読まない。
         with urllib.request.urlopen(req) as resp:
             print(f"[INFO] Datadog 送信完了 (metric={metric_name}, status={resp.status})")
     except Exception:
