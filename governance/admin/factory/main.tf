@@ -81,6 +81,10 @@ module "project_factory_sandboxes" {
   admin_project_number = local.admin_project_number
   wif_pool_name      = local.wif_pool_name
   github_repo        = each.value.github_repo
+  # sandbox-deploy(dev-manager-sa)も Admin の tfstate バケットへ terraform init するため必須。
+  # 未指定(既定 "")だと modules 側 5-3c の manager_sa_state_access が黙って for_each={} になり、
+  # 代替経路の無い dev-manager-sa は init が 403 で落ちる(apps 側の呼び出しと対称に渡す)。
+  admin_project_id   = data.google_project.admin.project_id
 
   owner_email        = lookup(each.value, "owner_email", var.admin_group_email)
   expiry_date        = lookup(each.value, "expiry_date", "")
