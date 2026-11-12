@@ -36,15 +36,15 @@ jobs:
   # 0. 変更検知
   check-changes:
     name: 'Check Changes'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       foundation: ${{ steps.filter.outputs.foundation }}
       factory: ${{ steps.filter.outputs.factory }}
       inventory_changed: ${{ steps.filter.outputs.inventory_changed }}
       workflow: ${{ steps.filter.outputs.workflow }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -66,12 +66,12 @@ jobs:
   # 1. Checkov セキュリティチェック（Apply前にブロック）
   checkov-gate:
     name: 'Checkov Security Gate'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run Checkov on governance/
         uses: bridgecrewio/checkov-action@v12
@@ -103,7 +103,7 @@ jobs:
     # WIF 認証に GCP プロジェクトが必須で、未設定だと "projects//..." で auth が cryptic に失敗するため、
     # 安全に skip する（設定駆動の前提ガード。OSS テンプレ等 GCP 非接続リポでも CI が緑になる）。
     if: vars.GCP_PROJECT_ID != '' && (needs.check-changes.outputs.foundation == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: governance/admin/foundation
@@ -121,15 +121,15 @@ jobs:
       TF_VAR_allowed_gh_repositories: '["${{ github.event.repository.name }}"]'
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Authenticate
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           project_id: '${{ vars.GCP_PROJECT_ID }}'
           workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
           service_account: 'prd-terraform-runner-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
       - name: Terraform Apply
         run: |
           cat <<EOF > backend.hcl
@@ -146,7 +146,7 @@ jobs:
     # 💡 インベントリ変更時も確実に実行されるよう条件を網羅
     # GCP 未設定（vars.GCP_PROJECT_ID 空）なら deploy しない（deploy-foundation と同じ前提ガード）。
     if: always() && !cancelled() && vars.GCP_PROJECT_ID != '' && (needs.check-changes.outputs.factory == 'true' || needs.check-changes.outputs.inventory_changed == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: governance/admin/factory
@@ -168,18 +168,18 @@ jobs:
         if: needs.deploy-foundation.result == 'failure'
         run: exit 1
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 2
       - name: Authenticate
         id: auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           project_id: '${{ vars.GCP_PROJECT_ID }}'
           workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
           service_account: 'prd-terraform-runner-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
       - name: Terraform Apply
         run: |
           cat <<EOF > backend.hcl
