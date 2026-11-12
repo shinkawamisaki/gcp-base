@@ -41,6 +41,17 @@ resource "google_service_account" "manager_sas" {
   project      = each.value.project_id
   account_id   = "${each.key}-manager-sa"
   display_name = "[${each.key}] Project Manager SA"
+
+  # 【fail-fast】WIF 連携(=GitHub Actions が manager-sa で deploy する構成)なのに
+  # admin_project_id が無いと、5-3c の manager_sa_state_access が黙って for_each={} になり
+  # manager-sa の terraform init が実行時に初めて 403 で落ちる(条件付き IAM の黙殺)。
+  # 「渡し忘れ」を実行時でなく plan 時に検知する。
+  lifecycle {
+    precondition {
+      condition     = var.wif_pool_name == "" || var.admin_project_id != ""
+      error_message = "wif_pool_name を設定する場合は admin_project_id も必須です。未指定だと manager_sa_state_access(tfstate バケットへの IAM)が作られず、manager-sa の terraform init が 403 になります。"
+    }
+  }
 }
 
 # ===============================================================
