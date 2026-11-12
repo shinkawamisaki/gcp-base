@@ -160,7 +160,10 @@ data "archive_file" "audit_source" {
   type        = "zip"
   source_dir  = "${path.module}"
   output_path = "${path.module}/weekly_check.zip"
-  excludes    = ["main.tf", "weekly_check.zip", "outputs.tf"]
+  # 関数ソース以外（terraform ファイル）を同梱しない。これらを含めると zip の
+  # md5（＝オブジェクト名）が terraform 側の変更や環境差で揺れ、不要な再アップロード
+  # （置換）が発生する。関数実行には不要なので除外する。
+  excludes = ["main.tf", "variables.tf", "outputs.tf", ".terraform.lock.hcl", "weekly_check.zip"]
 }
 
 resource "google_storage_bucket" "audit_source_bucket" {

@@ -49,7 +49,8 @@ def notify_slack(event, context):
         }
         
         # 6. 通知実行
-        requests.post(slack_url, json=message)
+        # timeout を付与し Slack 応答遅延時のハングを防ぐ（CWE-400）。
+        requests.post(slack_url, json=message, timeout=30)
         print(f"Notification sent for project ...{project_id[-4:] if project_id else 'N/A'} (cost: {cost})")
         
     except Exception as e:
