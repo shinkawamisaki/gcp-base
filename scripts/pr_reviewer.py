@@ -214,6 +214,24 @@ def post_or_update_comment(body_text):
     else:
         gh_request("POST", url, GH_HEADERS_JSON, json={"body": body_text})
 
+def post_verdict_comment(body_text):
+    """判定結果を PR コメントに書く。失敗しても判定（Commit Status・終了コード）は変えない。
+
+    ここに来た時点で検閲は終わり、判定は確定している。コメント投稿の失敗は
+    「検閲不能」ではないので、__main__ の GitHubAPIError 処理（STRICT_AI_VERIFY 契約）
+    には渡さない。渡すと STRICT=false では確定済みの FAIL が success（skipped）に化けて
+    検知した違反が通り、Draft の FAIL も pending でなく success になる。STRICT=true でも
+    確定済みの PASS が error に化けてマージが止まる。
+    戻り値: 投稿できたら True。
+    """
+    try:
+        post_or_update_comment(body_text)
+        return True
+    except GitHubAPIError as e:
+        # §5: 抽象化済みのメッセージだけを出す
+        print(f"[WARN] PR へのコメント投稿に失敗しました。判定は Commit Status に出します。{e.reason}")
+        return False
+
 # ==============================================================================
 # Datadog メトリクス送信
 # DATADOG_ENABLED=false の場合は何もしない（切り替えはこの環境変数だけ）
@@ -465,7 +483,7 @@ def main():
         clean_body = re.sub(r"^RESULT:\s*FAIL\s*$\n?", "", result_text, flags=re.MULTILINE)
         clean_body = re.sub(r"CATEGORY:\s*\w+\n?", "", clean_body).strip()
         comment_body = f"### 🤖 AI検閲官からのアドバイス\n\n🚨 **プロジェクト憲法への違反またはリスクを検知しました。**\n\n{clean_body}"
-        post_or_update_comment(comment_body)
+        commented = post_verdict_comment(comment_body)
         send_datadog_metrics("fail", is_draft, pr_author, category=violation_category)
 
         # Draft PRの聖域化（判例 DX-001: レビューはするがブロックしない）
@@ -480,12 +498,14 @@ def main():
             set_commit_status("pending", "FAIL (Draft - warning only. Re-run needed when ready)")
             sys.exit(0)
         else:
-            set_commit_status("failure", "AI verification failed. Check PR comments.")
+            # コメントを書けなかったときは「PR コメントを見て」と案内しない
+            set_commit_status("failure", "AI verification failed. Check PR comments." if commented
+                              else "AI verification failed. PR comment could not be posted; re-run for details.")
             sys.exit(1)
     elif re.search(r"^RESULT:\s*PASS\b", result_text, re.MULTILINE):
         print("[INFO] 検閲結果: 合格しました。")
         comment_body = "### 🤖 AI検閲官\n\n✅ **AI検閲を通過しました。** 憲法に準拠した素晴らしいコードです！"
-        post_or_update_comment(comment_body)
+        post_verdict_comment(comment_body)
         set_commit_status("success", "AI verification passed")
         send_datadog_metrics("pass", is_draft, pr_author)
 
@@ -549,8 +569,10 @@ if __name__ == "__main__":
     try:
         main()
     except GitHubAPIError as e:
-        # GitHub API（PR 情報・diff 取得・コメント投稿）の失敗は検閲不能として、
+        # GitHub API（PR 情報・diff 取得）の失敗は検閲不能として、
         # Vertex 障害・base SHA 不明時と同じ STRICT_AI_VERIFY 契約に乗せる。
+        # 判定が出た後のコメント投稿の失敗はここに来ない（post_verdict_comment で
+        # 握り、判定を変えない）。
         # §5: 抽象化済みメッセージのみ出力し、スタックトレースは出さない。
         print(f"[ERROR] {e.reason}")
         if STRICT_AI_VERIFY:
