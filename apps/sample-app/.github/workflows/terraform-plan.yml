@@ -17,20 +17,20 @@ jobs:
     name: 'Plan: infra (stg)'
     # ID_STG が未設定 or プレースホルダーの場合はスキップ
     if: vars.ID_STG != '' && !contains(vars.ID_STG, 'sample-app')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: infra
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Authenticate (stg-manager-sa)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: "projects/${{ vars.ADMIN_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider"
           service_account: "stg-manager-sa@${{ vars.ID_STG }}.iam.gserviceaccount.com"
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
 
       - name: Terraform Plan (stg)
         id: plan
@@ -48,7 +48,7 @@ jobs:
         continue-on-error: true
 
       - name: Post Plan Comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');

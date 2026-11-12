@@ -20,10 +20,10 @@ permissions:
 jobs:
   checkov-project:
     name: 'Checkov Project Strict'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run Checkov (hard fail)
         uses: bridgecrewio/checkov-action@v12
@@ -37,8 +37,11 @@ jobs:
           config_file: .checkov.yaml
 
       - name: Upload SARIF
-        if: always()
+        # 非公開リポは、code scanning（GitHub Advanced Security）が無いと送信が失敗し、実行のたびに
+        # 赤い注釈が付く。公開リポでだけ送る。code scanning を契約した非公開リポで送る場合は、
+        # 下の条件から「&& !github.event.repository.private」を外す。
+        if: always() && !github.event.repository.private
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results-project.sarif
