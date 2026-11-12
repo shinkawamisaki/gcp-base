@@ -78,6 +78,8 @@ writer は「レビューを通すこと」ではなく「レビューしやす�
 
 - ✋ **シークレット出力の禁止:** `terraform output` や環境変数の結果に含まれるシークレット値（トークン、APIキーなど）をコンソールやログに出力しない
 - ✋ **破壊的変更の禁止:** ユーザーの明示的な許可なく `terraform destroy` 等の破壊的コマンドを実行しない
+  - 次は `.claude/settings.json` の `permissions.deny` で止めてある。必要なときは人が手で実行するよう、コマンドを渡して止まる: `terraform` の destroy（`apply -destroy`・`plan -destroy`・`env` 経由も含む）／`rm` での `.terraform` の削除（`-rf`・`-fr`・`-r -f`）／`gcloud … delete`（`--quiet` の有無・`env` 経由を問わない）／main・master への push（`+main`・`HEAD:main`・`refs/heads/main` の指定も含む）と、送り先が分からない push（引数なしの `git push`・`git push -f`・リモート名だけの `git push origin`・`git push <remote> HEAD`）。push は送り先のブランチ名を必ず書く
+  - deny は Claude がふつう書く形のコマンドを止めるもので、すべての書き方は塞げない（`bash -c "…"`・`git -C <dir> push`・フルパスなどは当たらない。Claude Code の公式文書も「セキュリティの境界ではない」としている）。抜け道を探して使わないこと。ログの検索条件に `delete` という語があると `gcloud … delete` に誤って当たるので、その場合は検索語を変える
 - ✋ **ステートフルリソースの削除禁止:** 許可なくDB、GCSバケット、KMSキー等のデータを削除・DROPしない
 - ✋ **本番への直接操作禁止:** `gcp-base` または `prd-` 環境に対して、確認なしに `gcloud` コマンド等で直接変更を加えない
 - ✋ **認証情報のハードコード禁止:** コード内にサービスアカウントキーやAPIキーを直接書き込まない

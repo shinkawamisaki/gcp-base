@@ -18,14 +18,14 @@ jobs:
   # 変更検知（planを走らせるディレクトリを絞る）
   check-changes:
     name: 'Detect Changed Directories'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       org_policies: ${{ steps.filter.outputs.org_policies }}
       foundation:   ${{ steps.filter.outputs.foundation }}
       factory:      ${{ steps.filter.outputs.factory }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -50,7 +50,7 @@ jobs:
     # OSS テンプレ(gcp-base)は GCP/WIF 非接続のため、auth の常態的な赤で本物の失敗を隠さない（fail-loud 維持）。
     # project-23378 では値があるため挙動は不変。deploy 側(platform-admin.yml)と同じ前提ガード。
     if: needs.check-changes.outputs.org_policies == 'true' && vars.GCP_PROJECT_ID != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: governance/org-policies
@@ -58,14 +58,14 @@ jobs:
       TF_VAR_org_id:             ${{ secrets.GCP_ORG_ID }}
       TF_VAR_billing_project_id: ${{ vars.GCP_PROJECT_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Authenticate (Privileged SA)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           project_id: '${{ vars.GCP_PROJECT_ID }}'
           workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
           service_account: 'prd-org-policy-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - name: Terraform Plan
         id: plan
         run: |
@@ -78,7 +78,7 @@ jobs:
           echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
         continue-on-error: true
       - name: Post Plan Comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -103,7 +103,7 @@ jobs:
     needs: check-changes
     # GCP 未設定なら skip（理由は Plan: Org Policies のコメント参照）。
     if: needs.check-changes.outputs.foundation == 'true' && vars.GCP_PROJECT_ID != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: governance/admin/foundation
@@ -120,14 +120,14 @@ jobs:
       TF_VAR_project_owner:      ${{ vars.PROJECT_OWNER }}
       TF_VAR_allowed_gh_repositories: '["${{ github.event.repository.name }}"]'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Authenticate
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           project_id: '${{ vars.GCP_PROJECT_ID }}'
           workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
           service_account: 'prd-terraform-runner-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - name: Terraform Plan
         id: plan
         run: |
@@ -140,7 +140,7 @@ jobs:
           echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
         continue-on-error: true
       - name: Post Plan Comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -165,7 +165,7 @@ jobs:
     needs: check-changes
     # GCP 未設定なら skip（理由は Plan: Org Policies のコメント参照）。
     if: needs.check-changes.outputs.factory == 'true' && vars.GCP_PROJECT_ID != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: governance/admin/factory
@@ -183,14 +183,14 @@ jobs:
       TF_VAR_allowed_gh_repositories: '["${{ github.event.repository.name }}"]'
       TF_VAR_enable_budget_pubsub: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Authenticate
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           project_id: '${{ vars.GCP_PROJECT_ID }}'
           workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/gh-actions-pool/providers/gh-provider'
           service_account: 'prd-terraform-runner-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - name: Terraform Plan
         id: plan
         run: |
@@ -203,7 +203,7 @@ jobs:
           echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
         continue-on-error: true
       - name: Post Plan Comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
