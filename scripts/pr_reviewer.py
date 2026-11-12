@@ -190,6 +190,13 @@ def send_datadog_metrics(result, is_draft, pr_author, category=None):
     import urllib.parse
     import time
 
+    class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+        # リダイレクトを追わない。urllib は既定でリダイレクトを追い、DD-API-KEY ヘッダーも
+        # リダイレクト先へ送る（https→http も許す）。下の https の確認は最初の URL にしか
+        # 効かないため、追わずに送信失敗として扱う（3xx は HTTPError → 下の except）。
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
     tags = [
         f"result:{result}",
         f"repo:{REPO_FULL_NAME}",
@@ -209,9 +216,16 @@ def send_datadog_metrics(result, is_draft, pr_author, category=None):
         }]
     }
     url = os.environ.get("DATADOG_API_URL", "https://api.datadoghq.com/api/v2/series")
-    # 根本対策: urlopen に file:// 等の想定外スキームを渡させない（bandit B310 / CWE-22）。
+    # 根本対策: file:// 等の想定外スキームで開かせない（CWE-22）。
     # DATADOG_API_URL は外部入力（環境変数）であり、https 以外は弾く。
-    if urllib.parse.urlparse(url).scheme != "https":
+    # 形の崩れた URL では urlparse が ValueError を出す。ここで落ちると判定後の
+    # Commit Status が付かないまま終わるため、スタックトレースを出さずにスキップする（§5）。
+    try:
+        scheme = urllib.parse.urlparse(url).scheme
+    except ValueError:
+        print("[WARN] DATADOG_API_URL を URL として解釈できないため送信をスキップします。")
+        return
+    if scheme != "https":
         print("[WARN] DATADOG_API_URL が https ではないため送信をスキップします。")
         return
     req = urllib.request.Request(
@@ -221,9 +235,10 @@ def send_datadog_metrics(result, is_draft, pr_author, category=None):
         method="POST",
     )
     try:
-        # B310 抑止の根拠: 直前で scheme を https に限定済みのため、
-        # file:// や独自スキームの読み込みは到達不能（実害なし）。
-        with urllib.request.urlopen(req) as resp:  # nosec B310
+        # 直前で scheme を https に限定済み（file:// や独自スキームは開かない）。
+        # urlopen でなく、リダイレクトを追わない opener で送る（API キーを別の URL へ送らない）。
+        opener = urllib.request.build_opener(_NoRedirectHandler)
+        with opener.open(req) as resp:
             print(f"[INFO] Datadog 送信完了 (status={resp.status}, tags={tags})")
     except Exception:
         print("[WARN] Datadog への送信に失敗しました。(詳細は非表示)")
