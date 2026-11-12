@@ -200,7 +200,8 @@ data "archive_file" "lifecycle_source" {
   type        = "zip"
   source_dir  = path.module
   output_path = "${path.module}/sandbox_lifecycle.zip"
-  excludes    = ["main.tf", "variables.tf", "sandbox_lifecycle.zip", "outputs.tf"]
+  # 関数ソース以外（terraform ファイル）を同梱しない（zip md5 の揺れ＝不要な置換を防ぐ）。
+  excludes = ["main.tf", "variables.tf", "outputs.tf", ".terraform.lock.hcl", "sandbox_lifecycle.zip"]
 }
 
 resource "google_storage_bucket" "lifecycle_source_bucket" {

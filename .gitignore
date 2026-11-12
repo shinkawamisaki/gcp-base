@@ -118,5 +118,12 @@ credentials.json
 
 # --- Changelogs (uploaded to GCS) ---
 docs/change-logs/
+
+# --- AI Tools (local only) ---
+# .claude/ はチーム共通のガードレール（settings.json）を共有するため追跡する。
+# ただし .claude/worktrees/ は Claude Code の一時 worktree（gitlink）であり、
+# 追跡すると .gitmodules 不在のまま壊れた submodule 参照となり CI の checkout を
+# 壊す。ローカル限定の生成物なので必ず除外する。
+.claude/worktrees/
 logs/
 log/
