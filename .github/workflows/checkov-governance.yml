@@ -26,9 +26,9 @@ permissions:
 jobs:
   checkov-governance:
     name: 'Checkov Governance (CIS GCP Strict)'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run Checkov on governance/ (CIS GCP)
         uses: bridgecrewio/checkov-action@v12
@@ -45,18 +45,21 @@ jobs:
 
       - name: Upload SARIF (governance)
         # スキャンが違反で失敗しても、結果は Code Scanning に送る
-        if: always()
+        # 非公開リポは、code scanning（GitHub Advanced Security）が無いと送信が失敗し、実行のたびに
+        # 赤い注釈が付く。公開リポでだけ送る。code scanning を契約した非公開リポで送る場合は、
+        # 下の条件から「&& !github.event.repository.private」を外す。
+        if: always() && !github.event.repository.private
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results-governance.sarif
           category: checkov-governance
 
   checkov-modules:
     name: 'Checkov Modules (CIS GCP Strict)'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run Checkov on modules/ (CIS GCP)
         uses: bridgecrewio/checkov-action@v12
@@ -73,9 +76,12 @@ jobs:
 
       - name: Upload SARIF (modules)
         # スキャンが違反で失敗しても、結果は Code Scanning に送る
-        if: always()
+        # 非公開リポは、code scanning（GitHub Advanced Security）が無いと送信が失敗し、実行のたびに
+        # 赤い注釈が付く。公開リポでだけ送る。code scanning を契約した非公開リポで送る場合は、
+        # 下の条件から「&& !github.event.repository.private」を外す。
+        if: always() && !github.event.repository.private
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results-modules.sarif
           category: checkov-modules
