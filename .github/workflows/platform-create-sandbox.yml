@@ -56,6 +56,21 @@ jobs:
             echo "::error::Invalid github_repo format (expected: owner/repo)"
             exit 1
           fi
+          # sandbox_id はアプリ名・既存の sandbox 名と重ねない。tfstate の prefix
+          # （terraform/state/<名前>/）は名前で決まり、各 manager-sa にはその prefix への
+          # 条件付き IAM が付く（modules/project_factory の 5-3c）。アプリと重なると、sandbox の
+          # dev-manager-sa（github_repo のリポから使える）がそのアプリ（本番を含む）の state を
+          # 読み書きできてしまう。既存の sandbox と重なると、その sandbox の github_repo を
+          # 書き換えて乗っ取れてしまう。factory の plan でも重複を止める（inventory_name_guard）。
+          if ! TAKEN=$(jq --arg id "$SANDBOX_ID" '(.apps // {} | has($id)) or (.sandboxes // {} | has($id))' \
+                 governance/admin/factory/inventory.json); then
+            echo "::error::Failed to read governance/admin/factory/inventory.json"
+            exit 1
+          fi
+          if [ "$TAKEN" = "true" ]; then
+            echo "::error::sandbox_id '$SANDBOX_ID' is already used by an app or a sandbox in inventory.json"
+            exit 1
+          fi
 
       - name: Update inventory.json
         env:
