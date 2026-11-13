@@ -73,6 +73,7 @@
 
 **処理フロー**:
 1.  **差分取得**: GitHub API を使用してPRの差分を取得。
+    *   **GitHub API エラー時の扱い**: PR 情報・diff 取得で 401/403・5xx・通信例外が起きた場合は「検閲不能」として `STRICT_AI_VERIFY` 契約に従う（true なら error でブロック・exit 2、false〔本テンプレの既定〕なら skipped として success・exit 0）。判定が出た後の PR コメント投稿の失敗は検閲不能ではないので、警告だけ出して判定を変えない（FAIL は failure・exit 1、Draft の FAIL は pending、PASS は success）。401/403 時は「トークン失効・権限不足の可能性。PR レビュー用の GitHub トークンをローテーション」と原因を示す短いメッセージのみを出し、シークレット名・スタックトレース・トークン値は出さない（憲法 §5）。ローテーションするのは本書 §3.4 の PR レビュー用 GitHub トークン（手順も §3.4）。Commit Status の更新も同じトークンを使うため失敗し得るが、警告のみで二重には落ちない。このとき今回の判定の `AI-Verifier` Status は付かない。GitHub は context ごとに最新の Status で判定するため、同じコミットに以前の `AI-Verifier` の success が残っていると、その success で必須チェックが通ることがある（今回の判定は Status に反映されていない）。以前の success がなければ、必須チェックでマージが止まる。どちらの場合もマージは保留し、PR レビュー用 GitHub トークンをローテーションして Cloud Build を再実行し、Status と実行結果を確かめてからマージする。
 2.  **機密情報のマスク**: 正規表現によるパスワード・IPのマスク。
 3.  **AIプロンプト構築**: 検閲プロンプト本体（`prompts/reviewer_prompt.txt`）に `AGENTS.md`（憲法）と `logs/active_rules.md`（判例集）と差分を埋め込む。判例集は upsert 運用で行数が一定に保たれる。判例は憲法より優先してプロンプトに指示する。プロンプトを外部ファイル化しているのは、回帰テスト（`evals/` promptfoo）と本番が**同一のプロンプト**を読むことで eval の形骸化を構造的に防ぐため。プロンプト本体も審査基準の一部として `AGENTS.md` と同様に **base コミットから読む**（「プロンプトを骨抜きにする PR」を骨抜き前のプロンプトで検閲。取得不能時は `STRICT_AI_VERIFY` 契約に従う）。
     *   **審査基準は base コミットから読む（自己参照の遮断）**: 検閲基準（`AGENTS.md` / `active_rules.md`）は PR 適用後ではなく **PR の base コミット**（GitHub Contents API、`base.sha` 固定）から取得する。これにより「ルールを骨抜きにする PR」を“骨抜き前のルール”で審査でき、ルール削除を同じ diff で見逃す自己参照の穴を塞ぐ。判例集の更新 PR も、未承認の新判例を自らの正当化根拠に使えない（承認は人間が `judgments.md` で行う）。diff 自体は従来どおり PR から取得するため変更内容は審査される。base 取得は PR 内容に左右されない（攻撃者が失敗を誘発不能）ため、一時的な API エラー時のみ警告付きで head 版へフォールバックして可用性を保つ。base SHA を特定できない場合は検閲不能として `STRICT_AI_VERIFY` 契約に従う。
@@ -131,6 +132,12 @@ Terraformで以下のリソースを構築（または追記）します。
 1.  **Artifact Registry**: `ai-verifier` コンテナイメージの保存先 (`infra-tools` リポジトリ等)。
 2.  **Secret Manager**:
     *   `github-token-pr-reviewer`: GitHub PRにコメントを書き込むための権限（`repo`）を持ったPAT（Personal Access Token）。
+        *   **ローテーション手順**（失効・権限不足で 401/403 が出たとき。§3.2 の「GitHub API エラー時の扱い」も参照）:
+            1. GitHub で、同じ権限（`repo`）の PAT を新しく発行する。
+            2. `scripts/setup_secrets.sh` を実行し、この PAT の入力欄だけに新しい値を貼り付ける（ほかの欄は空のまま Enter で飛ばせる。値は画面に出ない）。登録すると新しいバージョンが追加される。
+            3. 当該 PR の Cloud Build トリガーを再実行する。
+            4. `AI-Verifier` の Status と Cloud Build の実行結果を確かめてから、マージする。
+            5. 古い PAT を GitHub で失効させる。
 3.  **Cloud Build Trigger**:
     *   対象リポジトリのPRイベント（作成・更新）で発火。
     *   代入変数（Substitutions）として `_PR_NUMBER` 等を渡す設定。
