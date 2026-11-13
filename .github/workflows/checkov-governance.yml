@@ -1,6 +1,8 @@
 name: 'Security: Checkov (Governance + Modules, CIS GCP)'
 
 on:
+  # pull_request には paths を付けない。下の 2 つのジョブは main の必須チェックなので、
+  # どの PR でも結果を返す必要がある（paths で絞ると、対象外の PR が Waiting のまま止まる）。
   pull_request:
     branches: [ main ]
   push:
@@ -16,24 +18,19 @@ permissions:
   contents: read
   security-events: write
 
+# 2 つのジョブは、どのフォルダが変更されたかに関係なく、毎回スキャンして SARIF を送る。
+# Code Scanning は、ベース（main）にある解析（category）が PR 側に無いと、その PR が持ち込む
+# アラートを判定できず「N configuration(s) not found」と警告する。フォルダに変更があるときだけ
+# 送る作りにすると、governance/ と modules/ の片方だけを変えた PR で、もう片方の category が
+# 欠けてこの警告が出る。必ず両方を送れば、片方だけ欠ける場合が無くなる。
 jobs:
   checkov-governance:
     name: 'Checkov Governance (CIS GCP Strict)'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            tf:
-              - 'governance/**'
-              - '.checkov.yaml'
-              - '.github/workflows/checkov-governance.yml'
+      - uses: actions/checkout@v7
 
       - name: Run Checkov on governance/ (CIS GCP)
-        if: steps.filter.outputs.tf == 'true'
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: governance
@@ -47,34 +44,24 @@ jobs:
           config_file: .checkov.yaml
 
       - name: Upload SARIF (governance)
-        if: steps.filter.outputs.tf == 'true' && always()
+        # スキャンが違反で失敗しても、結果は Code Scanning に送る
+        # 非公開リポは、code scanning（GitHub Advanced Security）が無いと送信が失敗し、実行のたびに
+        # 赤い注釈が付く。公開リポでだけ送る。code scanning を契約した非公開リポで送る場合は、
+        # 下の条件から「&& !github.event.repository.private」を外す。
+        if: always() && !github.event.repository.private
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results-governance.sarif
           category: checkov-governance
 
-      - name: Skip (no Terraform changes)
-        if: steps.filter.outputs.tf == 'false'
-        run: echo "No changes in governance/ — Checkov skipped"
-
   checkov-modules:
     name: 'Checkov Modules (CIS GCP Strict)'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            tf:
-              - 'modules/**'
-              - '.checkov.yaml'
-              - '.github/workflows/checkov-governance.yml'
+      - uses: actions/checkout@v7
 
       - name: Run Checkov on modules/ (CIS GCP)
-        if: steps.filter.outputs.tf == 'true'
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: modules
@@ -88,13 +75,13 @@ jobs:
           config_file: .checkov.yaml
 
       - name: Upload SARIF (modules)
-        if: steps.filter.outputs.tf == 'true' && always()
+        # スキャンが違反で失敗しても、結果は Code Scanning に送る
+        # 非公開リポは、code scanning（GitHub Advanced Security）が無いと送信が失敗し、実行のたびに
+        # 赤い注釈が付く。公開リポでだけ送る。code scanning を契約した非公開リポで送る場合は、
+        # 下の条件から「&& !github.event.repository.private」を外す。
+        if: always() && !github.event.repository.private
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results-modules.sarif
           category: checkov-modules
-
-      - name: Skip (no Terraform changes)
-        if: steps.filter.outputs.tf == 'false'
-        run: echo "No changes in modules/ — Checkov skipped"

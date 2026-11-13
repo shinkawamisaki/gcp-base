@@ -41,9 +41,29 @@ set_secret() {
 
     echo -e "\n[Setting up: ${GREEN}$NAME${NC}] ($DESC)"
     
-    if ! gcloud secrets describe "$NAME" --project="$PJ" &>/dev/null; then
-        echo -e "${RED}Error: Secret '$NAME' does not exist in Admin project.${NC}"
-        return
+    # describe の失敗理由を分類する。従来は &>/dev/null で握り潰し「存在しない」と一律表示して
+    # いたため、認証切れ・権限不足でも "does not exist" と誤表示し、原因究明を妨げていた
+    # （実際にこれで長時間ハマった）。stderr のみ捕捉（stdout は捨てる）し、§5 に従い生エラーは
+    # 出さず gcloud のエラー語だけで分類する。認証/権限系は全シークレット共通の問題なので
+    # 黙ってスキップせず fail-loud で即停止し、再認証を促す。
+    local _desc_err _desc_rc=0
+    _desc_err=$(gcloud secrets describe "$NAME" --project="$PJ" 2>&1 >/dev/null) || _desc_rc=$?
+    if [ "$_desc_rc" -ne 0 ]; then
+        if printf '%s' "$_desc_err" | grep -qiE "reauth|credential|invalid_grant|permission|denied|forbidden|unauthor"; then
+            echo -e "${RED}[Auth] '$NAME' を確認できません（認証/権限エラー）。${NC}"
+            # 再認証だけでは直らない「権限不足」もここに来るので、両方の直し方を示す
+            # （アカウント名・エラー本文は出さない。確認用のコマンドだけを案内する）。
+            echo -e "${YELLOW}→ 認証切れなら 'gcloud auth login' で再認証してください。${NC}"
+            echo -e "${YELLOW}→ 権限不足なら、今のアカウント（'gcloud auth list' の * 印）がプロジェクト '$PJ' の Secret Manager を操作できるか（例: roles/secretmanager.admin）を確認してください。${NC}"
+            echo -e "${YELLOW}   どちらかを直してから再実行してください。中断します。${NC}"
+            exit 1
+        elif printf '%s' "$_desc_err" | grep -qiE "NOT_FOUND|not found|does not exist|was not found"; then
+            echo -e "${RED}Error: Secret '$NAME' does not exist in Admin project. (skip)${NC}"
+            return
+        else
+            echo -e "${RED}Secret '$NAME' の確認に失敗しました（詳細は非表示）。中断します。${NC}"
+            exit 1
+        fi
     fi
 
     if [[ "$NAME" == *"private-key"* ]]; then
@@ -52,7 +72,7 @@ set_secret() {
         # 「ファイルパス指定」方式とする（中身は gcloud が直接読む）。
         echo -e "${YELLOW}Wait: This secret is MULTI-LINE. Enter the path to the key file.${NC}"
         echo -e "${YELLOW}(File content is sent directly to Secret Manager and never echoed.)${NC}"
-        read -r -p "Path to key file for $NAME (empty to skip): " KEY_FILE
+        read -r -p "Path to key file for $NAME (empty to skip): " KEY_FILE < /dev/tty
         if [ -z "$KEY_FILE" ]; then
             echo -e "${YELLOW}Skipped: No file specified.${NC}"
             return
@@ -68,8 +88,11 @@ set_secret() {
     fi
 
     # -s: 入力を画面にエコーしない（シークレットを端末表示・記録に残さない）
+    # < /dev/tty: 端末から直接読む。直前の gcloud 等が stdin を消費したり、stdin が
+    #   端末でない場合でも read が素通り（空スキップ）せず、必ず対話入力を待たせる。
+    #   これが無いと全プロンプトが一気に流れて入力できない不具合が出る。
     echo -e "${YELLOW}Wait: Paste your value below and press Enter (input is hidden).${NC}"
-    read -rs -p "Value for $NAME: " SECRET_VALUE
+    read -rs -p "Value for $NAME: " SECRET_VALUE < /dev/tty
     echo "" # read -s は改行を出力しないため明示
 
     if [ -z "$SECRET_VALUE" ]; then

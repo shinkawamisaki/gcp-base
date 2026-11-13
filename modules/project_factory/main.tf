@@ -18,12 +18,16 @@ resource "google_project" "apps" {
 
   # checkov:skip=CKV_GCP_27: "auto_create_network is false"
   
+  # expiry_date は空文字のとき付与しない。GCP は空値ラベルを保持しないため、
+  # 空のまま渡すと毎回「ラベル追加」の in-place 差分が出続け（永続 drift）、
+  # それを depends_on 経由で参照する weekly_check / sandbox_lifecycle の
+  # data.google_project 読み取りが apply まで延期され、IAM condition/member が
+  # 不要に置換される連鎖を生む。サンドボックス等で実値があるときのみ付与する。
   labels = merge(var.common_labels, {
-    env         = each.key
-    managed     = var.is_sandbox ? "terraform-sandbox" : "terraform-project-factory"
-    app_base    = var.app_base_name
-    expiry_date = var.expiry_date
-  })
+    env      = each.key
+    managed  = var.is_sandbox ? "terraform-sandbox" : "terraform-project-factory"
+    app_base = var.app_base_name
+  }, var.expiry_date != "" ? { expiry_date = var.expiry_date } : {})
 
   # サンドボックスの場合は削除を許可、それ以外は Lien で保護
   deletion_policy = var.deletion_policy
@@ -37,6 +41,17 @@ resource "google_service_account" "manager_sas" {
   project      = each.value.project_id
   account_id   = "${each.key}-manager-sa"
   display_name = "[${each.key}] Project Manager SA"
+
+  # 【fail-fast】WIF 連携(=GitHub Actions が manager-sa で deploy する構成)なのに
+  # admin_project_id が無いと、5-3c の manager_sa_state_access が黙って for_each={} になり
+  # manager-sa の terraform init が実行時に初めて 403 で落ちる(条件付き IAM の黙殺)。
+  # 「渡し忘れ」を実行時でなく plan 時に検知する。
+  lifecycle {
+    precondition {
+      condition     = var.wif_pool_name == "" || var.admin_project_id != ""
+      error_message = "wif_pool_name を設定する場合は admin_project_id も必須です。未指定だと manager_sa_state_access(tfstate バケットへの IAM)が作られず、manager-sa の terraform init が 403 になります。"
+    }
+  }
 }
 
 # ===============================================================

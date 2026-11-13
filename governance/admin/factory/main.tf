@@ -29,6 +29,22 @@ locals {
   inventory = jsondecode(file("${path.module}/inventory.json"))
 }
 
+# sandbox とアプリの名前の重複を plan で止める。
+# tfstate の prefix（terraform/state/<名前>/）は名前で決まり、各 manager-sa にはその prefix への
+# 条件付き IAM が付く（modules/project_factory の 5-3c）。名前が重なると、sandbox の
+# dev-manager-sa（sandbox 作成時に指定したリポから使える）が、そのアプリの state（本番を含む）を
+# 読み書きできてしまう。作成ワークフロー（platform-create-sandbox.yml）でも断るが、
+# inventory.json を PR で直接編集する経路もあるため、ここで必ず止める。
+# terraform_data は GCP 上に何も作らない（state に記録されるだけ）。
+resource "terraform_data" "inventory_name_guard" {
+  lifecycle {
+    precondition {
+      condition     = length(setintersection(keys(local.inventory.apps), keys(local.inventory.sandboxes))) == 0
+      error_message = "inventory.json の sandboxes にアプリと同じ名前があります: ${join(", ", setintersection(keys(local.inventory.apps), keys(local.inventory.sandboxes)))}。名前が重なると tfstate の prefix が同じになり、sandbox からアプリの state を読み書きできてしまうため、sandbox の名前を変えてください。"
+    }
+  }
+}
+
 # 管理プロジェクトの情報を取得
 data "google_project" "admin" {
   project_id = var.project_id
@@ -81,6 +97,10 @@ module "project_factory_sandboxes" {
   admin_project_number = local.admin_project_number
   wif_pool_name      = local.wif_pool_name
   github_repo        = each.value.github_repo
+  # sandbox-deploy(dev-manager-sa)も Admin の tfstate バケットへ terraform init するため必須。
+  # 未指定(既定 "")だと modules 側 5-3c の manager_sa_state_access が黙って for_each={} になり、
+  # 代替経路の無い dev-manager-sa は init が 403 で落ちる(apps 側の呼び出しと対称に渡す)。
+  admin_project_id   = data.google_project.admin.project_id
 
   owner_email        = lookup(each.value, "owner_email", var.admin_group_email)
   expiry_date        = lookup(each.value, "expiry_date", "")
