@@ -135,17 +135,53 @@ def get_base_file_content(path, base_sha, local_path=None):
             return f.read(), "local"
     return "", "empty"
 
+class GitHubAPIError(Exception):
+    """GitHub API 呼び出しの失敗（分類済み）。
+
+    §5: レスポンス本文・例外詳細・トークンは保持しない。呼び出し側がログと
+    Commit Status に出せる抽象化済みメッセージ（reason / status_description）だけを持つ。
+    """
+    def __init__(self, reason, status_description):
+        super().__init__(reason)
+        self.reason = reason
+        self.status_description = status_description
+
+def gh_request(method, url, headers, **kwargs):
+    """GitHub API を呼び、失敗を GitHubAPIError に分類して送出する。
+
+    resp.raise_for_status() をそのまま使うと未捕捉の HTTPError が生スタックトレース
+    付きで Cloud Build ログに出る（§5 違反。PR #104 でトークン失効時に実際に発生）。
+    ここで 401/403（認証・権限）/ その他 HTTP エラー / 通信例外を分類し、原因を
+    特定できる短いメッセージだけを持たせる。トークン値・レスポンス本文は出さない。
+    """
+    try:
+        resp = requests.request(method, url, headers=headers, timeout=GH_HTTP_TIMEOUT, **kwargs)
+    except requests.RequestException:
+        raise GitHubAPIError(
+            "GitHub API との通信に失敗しました（タイムアウト・接続エラー）。(詳細は非表示)",
+            "GitHub API unreachable",
+        )
+    if resp.status_code in (401, 403):
+        raise GitHubAPIError(
+            f"GitHub API が認証・権限エラーを返しました（status={resp.status_code}）。"
+            "GitHub トークンの失効・権限不足の可能性があります。"
+            "Secret Manager の github-token-pr-reviewer をローテーションしてください。",
+            f"GitHub token invalid or insufficient (HTTP {resp.status_code})",
+        )
+    if resp.status_code >= 400:
+        raise GitHubAPIError(
+            f"GitHub API がエラーを返しました（status={resp.status_code}）。(詳細は非表示)",
+            f"GitHub API error (HTTP {resp.status_code})",
+        )
+    return resp
+
 def get_pr_info():
     url = f"https://api.github.com/repos/{REPO_FULL_NAME}/pulls/{PR_NUMBER}"
-    resp = requests.get(url, headers=GH_HEADERS_JSON, timeout=GH_HTTP_TIMEOUT)
-    resp.raise_for_status()
-    return resp.json()
+    return gh_request("GET", url, GH_HEADERS_JSON).json()
 
 def get_pr_diff():
     url = f"https://api.github.com/repos/{REPO_FULL_NAME}/pulls/{PR_NUMBER}"
-    resp = requests.get(url, headers=GH_HEADERS_DIFF, timeout=GH_HTTP_TIMEOUT)
-    resp.raise_for_status()
-    return resp.text
+    return gh_request("GET", url, GH_HEADERS_DIFF).text
 
 def set_commit_status(state, description):
     url = f"https://api.github.com/repos/{REPO_FULL_NAME}/statuses/{COMMIT_SHA}"
@@ -154,13 +190,17 @@ def set_commit_status(state, description):
         "description": description[:140],
         "context": "AI-Verifier"
     }
-    requests.post(url, headers=GH_HEADERS_JSON, json=data, timeout=GH_HTTP_TIMEOUT)
+    # Commit Status の更新も同じトークンを使うため、トークン失効時はここも失敗する。
+    # ここで例外を上げると「検閲不能の通知に失敗して二重に落ちる」ため、警告だけ出して
+    # 終了コードは呼び出し側（STRICT 契約の exit 2 等）に委ねる。
+    try:
+        gh_request("POST", url, GH_HEADERS_JSON, json=data)
+    except GitHubAPIError as e:
+        print(f"[WARN] Commit Status ({state}) の更新に失敗しました。{e.reason}")
 
 def post_or_update_comment(body_text):
     url = f"https://api.github.com/repos/{REPO_FULL_NAME}/issues/{PR_NUMBER}/comments"
-    resp = requests.get(url, headers=GH_HEADERS_JSON, timeout=GH_HTTP_TIMEOUT)
-    resp.raise_for_status()
-    comments = resp.json()
+    comments = gh_request("GET", url, GH_HEADERS_JSON).json()
 
     bot_comment_id = None
     for c in comments:
@@ -170,9 +210,27 @@ def post_or_update_comment(body_text):
 
     if bot_comment_id:
         update_url = f"https://api.github.com/repos/{REPO_FULL_NAME}/issues/comments/{bot_comment_id}"
-        requests.patch(update_url, headers=GH_HEADERS_JSON, json={"body": body_text}, timeout=GH_HTTP_TIMEOUT)
+        gh_request("PATCH", update_url, GH_HEADERS_JSON, json={"body": body_text})
     else:
-        requests.post(url, headers=GH_HEADERS_JSON, json={"body": body_text}, timeout=GH_HTTP_TIMEOUT)
+        gh_request("POST", url, GH_HEADERS_JSON, json={"body": body_text})
+
+def post_verdict_comment(body_text):
+    """判定結果を PR コメントに書く。失敗しても判定（Commit Status・終了コード）は変えない。
+
+    ここに来た時点で検閲は終わり、判定は確定している。コメント投稿の失敗は
+    「検閲不能」ではないので、__main__ の GitHubAPIError 処理（STRICT_AI_VERIFY 契約）
+    には渡さない。渡すと STRICT=false では確定済みの FAIL が success（skipped）に化けて
+    検知した違反が通り、Draft の FAIL も pending でなく success になる。STRICT=true でも
+    確定済みの PASS が error に化けてマージが止まる。
+    戻り値: 投稿できたら True。
+    """
+    try:
+        post_or_update_comment(body_text)
+        return True
+    except GitHubAPIError as e:
+        # §5: 抽象化済みのメッセージだけを出す
+        print(f"[WARN] PR へのコメント投稿に失敗しました。判定は Commit Status に出します。{e.reason}")
+        return False
 
 # ==============================================================================
 # Datadog メトリクス送信
@@ -440,7 +498,7 @@ def main():
         clean_body = re.sub(r"^RESULT:\s*FAIL\s*$\n?", "", result_text, flags=re.MULTILINE)
         clean_body = re.sub(r"CATEGORY:\s*\w+\n?", "", clean_body).strip()
         comment_body = f"### 🤖 AI検閲官からのアドバイス\n\n🚨 **プロジェクト憲法への違反またはリスクを検知しました。**\n\n{clean_body}"
-        post_or_update_comment(comment_body)
+        commented = post_verdict_comment(comment_body)
         send_datadog_metrics("fail", is_draft, pr_author, category=violation_category)
 
         # Draft PRの聖域化（判例 DX-001: レビューはするがブロックしない）
@@ -455,12 +513,14 @@ def main():
             set_commit_status("pending", "FAIL (Draft - warning only. Re-run needed when ready)")
             sys.exit(0)
         else:
-            set_commit_status("failure", "AI verification failed. Check PR comments.")
+            # コメントを書けなかったときは「PR コメントを見て」と案内しない
+            set_commit_status("failure", "AI verification failed. Check PR comments." if commented
+                              else "AI verification failed. PR comment could not be posted; re-run for details.")
             sys.exit(1)
     elif re.search(r"^RESULT:\s*PASS\b", result_text, re.MULTILINE):
         print("[INFO] 検閲結果: 合格しました。")
         comment_body = "### 🤖 AI検閲官\n\n✅ **AI検閲を通過しました。** 憲法に準拠した素晴らしいコードです！"
-        post_or_update_comment(comment_body)
+        post_verdict_comment(comment_body)
         set_commit_status("success", "AI verification passed")
         send_datadog_metrics("pass", is_draft, pr_author)
 
@@ -521,4 +581,17 @@ def generate_changelog(client, diff_content, model=None):
         print("[WARN] 逆引き仕様書の生成またはアップロードに失敗しました。(詳細は非表示)")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except GitHubAPIError as e:
+        # GitHub API（PR 情報・diff 取得）の失敗は検閲不能として、
+        # Vertex 障害・base SHA 不明時と同じ STRICT_AI_VERIFY 契約に乗せる。
+        # 判定が出た後のコメント投稿の失敗はここに来ない（post_verdict_comment で
+        # 握り、判定を変えない）。
+        # §5: 抽象化済みメッセージのみ出力し、スタックトレースは出さない。
+        print(f"[ERROR] {e.reason}")
+        if STRICT_AI_VERIFY:
+            set_commit_status("error", e.status_description)
+            sys.exit(2)
+        set_commit_status("success", "AI verification skipped (GitHub API error)")
+        sys.exit(0)
