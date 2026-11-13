@@ -162,10 +162,13 @@ def gh_request(method, url, headers, **kwargs):
             "GitHub API unreachable",
         )
     if resp.status_code in (401, 403):
+        # シークレット名はログに出さない（憲法 §5。この reason は Cloud Build のログに出る）。
+        # どのトークンをローテーションするかと手順は仕様書に書き、ここでは仕様書を案内するだけにする。
         raise GitHubAPIError(
             f"GitHub API が認証・権限エラーを返しました（status={resp.status_code}）。"
             "GitHub トークンの失効・権限不足の可能性があります。"
-            "Secret Manager の github-token-pr-reviewer をローテーションしてください。",
+            "PR レビュー用の GitHub トークンをローテーションしてください"
+            "（手順は docs/SPEC_AI_VERIFIER_CLOUDBUILD.md）。",
             f"GitHub token invalid or insufficient (HTTP {resp.status_code})",
         )
     if resp.status_code >= 400:
