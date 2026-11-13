@@ -10,6 +10,24 @@ on:
       - 'scripts/**'
       - '.github/workflows/platform-admin.yml'
   workflow_dispatch:
+    inputs:
+      force_variable_sync:
+        description: 'inventory に差分が無くても現 inventory の全アプリ/サンドボックスの GitHub Variables を再同期する（クレデンシャル修復後などの手動再同期用）'
+        type: boolean
+        default: false
+
+# 同一 state への terraform apply の同時実行を防ぐ。複数 PR を連続マージすると
+# マージごとにこの workflow が起動し、apply 同士が GCS の state ロックを取り合って
+# `Error 412: acquiring the state lock` で失敗する。apply する state は 1 つなので、
+# ブランチに関係なく 1 つの group で直列化し、後続 run は実行中の apply 完了を待つ。
+#   cancel-in-progress: false … 実行中の apply は絶対に中断しない（途中キャンセルは
+#   state 破損・リソース半端適用のリスク）。待機中(pending)の中間 run はより新しい run に
+#   置き換えられる。terraform は宣言的で最新コミットの apply が過去差分も全て含むが、
+#   変更検知と GitHub Variables の同期は差分で動くため、置き換えられた run の分を
+#   取りこぼさないよう、check-changes で「main で前回成功した run のコミット」と比べる。
+concurrency:
+  group: admin-deploy
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -20,16 +38,45 @@ jobs:
   check-changes:
     name: 'Check Changes'
     runs-on: ubuntu-26.04
+    # 前回成功した run を調べるため actions: read だけを足す（WIF の id-token は使わない）
+    permissions:
+      contents: read
+      actions: read
     outputs:
       foundation: ${{ steps.filter.outputs.foundation }}
       factory: ${{ steps.filter.outputs.factory }}
       inventory_changed: ${{ steps.filter.outputs.inventory_changed }}
       workflow: ${{ steps.filter.outputs.workflow }}
+      base_sha: ${{ steps.base.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # 前回成功した run のコミットと比べるため、履歴をすべて取る
+      - name: Find the commit of the last successful run
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          # 待機中の run が新しい run に置き換えられると、置き換えられた run のコミットの
+          # 変更は、直前のコミットとしか比べない作りではどの run でも扱われない（apply の
+          # 要否の判定・GitHub Variables の同期から漏れる）。main で前回成功した run の
+          # コミットと比べ、その間の変更をまとめて拾う。見つからないとき・今のコミットの
+          # 祖先でないとき（初回・履歴の書き換え後など）は空にし、paths-filter の既定
+          # （push の直前のコミットと比べる）に任せる。
+          sha=$(gh api "repos/$REPO/actions/workflows/platform-admin.yml/runs?branch=main&status=success&per_page=1" \
+                  --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null || true)
+          if [ -n "$sha" ] && git merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"
+            echo "比べる相手: main で前回成功した run のコミット $sha"
+          else
+            echo "sha=" >> "$GITHUB_OUTPUT"
+            echo "前回成功した run のコミットが使えないため、直前のコミットと比べます。"
+          fi
       - uses: dorny/paths-filter@v4
         id: filter
         with:
+          base: ${{ steps.base.outputs.sha }}
           filters: |
             foundation:
               - 'governance/admin/foundation/**'
@@ -85,7 +132,9 @@ jobs:
     # GCP 未設定（vars.GCP_PROJECT_ID 空）の環境では deploy を行わない。
     # WIF 認証に GCP プロジェクトが必須で、未設定だと "projects//..." で auth が cryptic に失敗するため、
     # 安全に skip する（設定駆動の前提ガード。OSS テンプレ等 GCP 非接続リポでも CI が緑になる）。
-    if: vars.GCP_PROJECT_ID != '' && (needs.check-changes.outputs.foundation == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
+    # apply は main からだけ行う。手動実行（workflow_dispatch）は任意のブランチから起動でき、
+    # レビュー前のブランチの内容を本番の state に apply できてしまうため。
+    if: github.ref == 'refs/heads/main' && vars.GCP_PROJECT_ID != '' && (needs.check-changes.outputs.foundation == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-26.04
     defaults:
       run:
@@ -128,7 +177,8 @@ jobs:
     needs: [check-changes, checkov-gate, deploy-foundation]
     # 💡 インベントリ変更時も確実に実行されるよう条件を網羅
     # GCP 未設定（vars.GCP_PROJECT_ID 空）なら deploy しない（deploy-foundation と同じ前提ガード）。
-    if: always() && !cancelled() && vars.GCP_PROJECT_ID != '' && (needs.check-changes.outputs.factory == 'true' || needs.check-changes.outputs.inventory_changed == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
+    # apply は main からだけ行う（理由は deploy-foundation と同じ）。
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && vars.GCP_PROJECT_ID != '' && (needs.check-changes.outputs.factory == 'true' || needs.check-changes.outputs.inventory_changed == 'true' || needs.check-changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-26.04
     defaults:
       run:
@@ -153,7 +203,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v7
         with:
-          fetch-depth: 2
+          fetch-depth: 0   # 前回成功した run のコミット時点のインベントリと比べるため
       - name: Authenticate
         id: auth
         uses: google-github-actions/auth@v3
@@ -186,6 +236,11 @@ jobs:
           PROJECTS_JSON: ${{ env.PROJECTS_JSON }}
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
+          # workflow_dispatch の force_variable_sync 入力を notify スクリプトへ渡す。
+          # push トリガー時は inputs が無いため空文字（＝通常の差分ベース同期）。
+          FORCE_VARIABLE_SYNC: ${{ github.event.inputs.force_variable_sync }}
+          # 差分の比べる相手（main で前回成功した run のコミット。check-changes が決める）
+          BASE_SHA: ${{ needs.check-changes.outputs.base_sha }}
         run: |
           set -e
           # ---------------------------------------------------------------
@@ -201,8 +256,13 @@ jobs:
           export GITHUB_APP_INSTALLATION_ID=$(gcloud secrets versions access latest --secret="infra-github-app-installation-id" --project="${{ vars.GCP_PROJECT_ID }}")
           export GITHUB_TOKEN=$(gcloud secrets versions access latest --secret="infra-github-token" --project="${{ vars.GCP_PROJECT_ID }}")
 
-          # 変更前のインベントリを取得
-          git show HEAD^:governance/admin/factory/inventory.json > inventory_old.json 2>/dev/null || echo '{"apps":{},"sandboxes":{}}' > inventory_old.json
+          # 変更前のインベントリを取得。main で前回成功した run のコミット時点と比べ、
+          # 置き換えられた run の分の追加・変更も同期する。使えないときは直前のコミットと比べる。
+          if [ -n "$BASE_SHA" ] && git show "$BASE_SHA:governance/admin/factory/inventory.json" > inventory_old.json 2>/dev/null; then
+            echo "変更前のインベントリ: $BASE_SHA の時点"
+          else
+            git show HEAD^:governance/admin/factory/inventory.json > inventory_old.json 2>/dev/null || echo '{"apps":{},"sandboxes":{}}' > inventory_old.json
+          fi
 
           # Python スクリプトの依存関係をインストール
           pip install "pyjwt<3.0.0" "requests<3.0.0"
