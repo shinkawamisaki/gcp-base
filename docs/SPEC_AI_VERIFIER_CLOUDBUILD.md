@@ -133,10 +133,10 @@ Terraformで以下のリソースを構築（または追記）します。
 2.  **Secret Manager**:
     *   `github-token-pr-reviewer`: GitHub PRにコメントを書き込むための権限（`repo`）を持ったPAT（Personal Access Token）。
         *   **ローテーション手順**（失効・権限不足で 401/403 が出たとき。§3.2 の「GitHub API エラー時の扱い」も参照）:
-            1. GitHub で、同じ権限（`repo`）の PAT を新しく発行する。
+            1. GitHub で、同じ権限（`repo`）の PAT を新しく発行する。対象のリポジトリを持つ organization が SAML SSO を使っている場合は、発行した PAT をその organization 向けに SSO 認可する（認可しないと、再実行しても 401/403 のままになる）。
             2. `scripts/setup_secrets.sh` を実行し、この PAT の入力欄だけに新しい値を貼り付ける（ほかの欄は空のまま Enter で飛ばせる。値は画面に出ない）。登録すると新しいバージョンが追加される。
             3. 当該 PR の Cloud Build トリガーを再実行する。
-            4. `AI-Verifier` の Status と Cloud Build の実行結果を確かめてから、マージする。
+            4. `AI-Verifier` の Status の説明が `AI verification passed` で、更新時刻が今回の再実行のものであることを確かめてから、マージする。本テンプレの既定（`STRICT_AI_VERIFY=false`）では、検閲できなかったときも Status は success になり、説明が `AI verification skipped (...)` になる。新しい PAT が無効なときは、Status の更新にも同じ PAT を使うので更新できず、古い Status が残るか、Status が付かない（Cloud Build のログに `[WARN] Commit Status` が出る）。Cloud Build の成功だけでは PASS と判断せず、`skipped` のときや、ログに `[WARN] Commit Status` が出ているときは、マージを保留する。
             5. 古い PAT を GitHub で失効させる。
 3.  **Cloud Build Trigger**:
     *   対象リポジトリのPRイベント（作成・更新）で発火。
