@@ -1,4 +1,4 @@
-name: 'Security: CodeQL Analysis (Python)'
+name: 'Security: CodeQL Analysis (Python / Actions)'
 
 on:
   push:
@@ -35,3 +35,33 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: codeql-python
+
+  # GitHub Actions のワークフロー定義の解析。
+  # 2026-05-16 にデフォルトセットアップから本ワークフローへ移った際、languages を python だけにしたため、
+  # デフォルトセットアップが行っていた Actions の解析が止まっていた。それを戻す。
+  # 本テンプレは Terraform の plan/apply を Actions で行う設計で、利用者はワークフローを写して使う。
+  # 式の埋め込みによるコマンド注入や permissions の未指定は、ワークフロー側で防ぐ必要がある。
+  #
+  # - Python のジョブは変えず、別のジョブにする（言語ごとにクエリの種類が違うため）。
+  # - queries は指定しない（標準のクエリ。デフォルトセットアップと同じ中身）。
+  #   security-extended / security-and-quality には actions/unpinned-tag が入る。
+  #   これは第三者の Action のタグ指定（checkov-action・google-github-actions/auth など）を
+  #   未対応のアラートとして並べ続ける（.checkov.yaml が避けている Code Scanning のノイズと同じ）。
+  #   第三者の Action を SHA で固定するかは、別に判断する。
+  analyze-actions:
+    name: 'CodeQL Analysis (Actions)'
+    runs-on: ubuntu-26.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: actions
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: codeql-actions
